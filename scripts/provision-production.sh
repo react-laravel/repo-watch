@@ -34,6 +34,8 @@ db_password="$(cat "$DB_PASSWORD_FILE")"
 app_key="base64:$(openssl base64 -A < "$SECRET_DIR/app-key")"
 sso_secret="$(cat "$SECRET_DIR/sso-client-secret")"
 
+install -d -o www-data -g www-data -m 775 "$API_ROOT" "$WEB_ROOT"
+
 install -d -o www-data -g www-data -m 775 \
   "$API_ROOT/shared" \
   "$API_ROOT/shared/storage/app/public" \
