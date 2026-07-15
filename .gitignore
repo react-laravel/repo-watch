@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.idea/
+.vscode/
+api/.phpunit.cache/
+api/bootstrap/cache/*.php
+api/storage/**/*.log
+api/vendor/
+web/.next/
+web/node_modules/
+web/tsconfig.tsbuildinfo
+
