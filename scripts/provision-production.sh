@@ -35,7 +35,15 @@ app_key="base64:$(openssl base64 -A < "$SECRET_DIR/app-key")"
 sso_secret="$(cat "$SECRET_DIR/sso-client-secret")"
 
 install -d -o www-data -g www-data -m 775 \
-  "$API_ROOT/shared" "$API_ROOT/releases" "$WEB_ROOT/shared" "$WEB_ROOT/releases"
+  "$API_ROOT/shared" \
+  "$API_ROOT/shared/storage/app/public" \
+  "$API_ROOT/shared/storage/framework/cache/data" \
+  "$API_ROOT/shared/storage/framework/sessions" \
+  "$API_ROOT/shared/storage/framework/views" \
+  "$API_ROOT/shared/storage/logs" \
+  "$API_ROOT/releases" \
+  "$WEB_ROOT/shared" \
+  "$WEB_ROOT/releases"
 
 cat > "$API_ROOT/shared/.env" <<EOF
 APP_NAME="DogeOW Repo Watch API"
