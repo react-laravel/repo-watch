@@ -45,6 +45,8 @@ install -d -o www-data -g www-data -m 775 \
   "$WEB_ROOT/shared" \
   "$WEB_ROOT/releases"
 
+chown -R www-data:www-data "$API_ROOT/shared" "$WEB_ROOT/shared"
+
 cat > "$API_ROOT/shared/.env" <<EOF
 APP_NAME="DogeOW Repo Watch API"
 APP_ENV=production
