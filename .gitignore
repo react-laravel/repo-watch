@@ -7,6 +7,5 @@ api/bootstrap/cache/*.php
 api/storage/**/*.log
 api/vendor/
 web/.next/
-web/node_modules/
+web/node_modules
 web/tsconfig.tsbuildinfo
-
