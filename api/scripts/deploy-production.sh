@@ -55,21 +55,27 @@ php "$CURRENT/artisan" queue:restart || true
 sudo -n supervisorctl reread
 sudo -n supervisorctl update
 sudo -n supervisorctl restart repo-watch-api:*
+sudo -n supervisorctl restart repo-watch-api-worker || sudo -n supervisorctl start repo-watch-api-worker
 
 rollback_release() {
   if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
     activate_release "$PREVIOUS"
     sudo -n supervisorctl restart repo-watch-api:*
+    sudo -n supervisorctl restart repo-watch-api-worker || sudo -n supervisorctl start repo-watch-api-worker
   fi
 }
 
-if ! curl -fsS --max-time 10 http://127.0.0.1:8012/up >/dev/null; then
-  rollback_release
-  exit 1
-fi
+healthy=false
+for _ in {1..15}; do
+  user_status="$(curl -sS --max-time 2 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8012/api/user || true)"
+  if curl -fsS --max-time 2 http://127.0.0.1:8012/up >/dev/null && [ "$user_status" = "401" ]; then
+    healthy=true
+    break
+  fi
+  sleep 1
+done
 
-user_status="$(curl -sS --max-time 10 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8012/api/user || true)"
-if [ "$user_status" != "401" ]; then
+if [ "$healthy" != true ]; then
   rollback_release
   exit 1
 fi
