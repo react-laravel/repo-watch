@@ -11,6 +11,14 @@ STAGING="$RELEASES/.staging-$STAMP-$$"
 RELEASE="$RELEASES/$STAMP"
 PREVIOUS="$(readlink -f "$CURRENT" 2>/dev/null || true)"
 
+activate_release() {
+  local target="$1"
+  local next_link="$APP_ROOT/.current-$STAMP-$$"
+
+  ln -s "$target" "$next_link"
+  mv -Tf "$next_link" "$CURRENT"
+}
+
 mkdir -p "$RELEASES" "$SHARED/storage/framework/cache/data" \
   "$SHARED/storage/framework/sessions" "$SHARED/storage/framework/views" \
   "$SHARED/storage/logs" "$SHARED/storage/app/public"
@@ -41,7 +49,7 @@ php artisan view:cache
 php artisan migrate --force
 
 mv "$STAGING" "$RELEASE"
-ln -sfn "$RELEASE" "$CURRENT"
+activate_release "$RELEASE"
 
 php "$CURRENT/artisan" queue:restart || true
 sudo -n supervisorctl reread
@@ -50,7 +58,7 @@ sudo -n supervisorctl restart repo-watch-api:*
 
 rollback_release() {
   if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
-    ln -sfn "$PREVIOUS" "$CURRENT"
+    activate_release "$PREVIOUS"
     sudo -n supervisorctl restart repo-watch-api:*
   fi
 }

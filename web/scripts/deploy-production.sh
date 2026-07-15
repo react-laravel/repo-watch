@@ -11,6 +11,14 @@ RELEASE="$RELEASES/$STAMP"
 PREVIOUS="$(readlink -f "$CURRENT" 2>/dev/null || true)"
 PM2_HOME="${PM2_HOME:-/var/www/.pm2}"
 
+activate_release() {
+  local target="$1"
+  local next_link="$APP_ROOT/.current-$STAMP-$$"
+
+  ln -s "$target" "$next_link"
+  mv -Tf "$next_link" "$CURRENT"
+}
+
 mkdir -p "$RELEASES" "$APP_ROOT/shared"
 test -s "$APP_ROOT/.env.production"
 
@@ -29,7 +37,7 @@ npm test
 npm run build
 
 mv "$STAGING" "$RELEASE"
-ln -sfn "$RELEASE" "$CURRENT"
+activate_release "$RELEASE"
 
 export PM2_HOME PM2_CWD="$CURRENT"
 pm2 startOrReload "$CURRENT/ecosystem.config.cjs" --only repo-watch-nextjs --update-env
@@ -46,7 +54,7 @@ done
 
 if [ "$healthy" != true ]; then
   if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
-    ln -sfn "$PREVIOUS" "$CURRENT"
+    activate_release "$PREVIOUS"
     export PM2_CWD="$CURRENT"
     pm2 startOrReload "$CURRENT/ecosystem.config.cjs" --only repo-watch-nextjs --update-env
   fi
