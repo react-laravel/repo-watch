@@ -22,11 +22,11 @@ cd web && npm ci && npm run dev
 
 ## 首次上线
 
-服务器上按顺序执行：
+先将中央 `dogeow-api` 的 Repo Watch SSO 客户端代码部署到正式环境，然后在服务器上按顺序执行：
 
 ```bash
 sudo scripts/migrate-production-database.sh
 sudo scripts/provision-production.sh
 ```
 
-随后推送 `main`，self-hosted runner 会先部署 API，再部署 Web，并执行健康检查与失败回滚。
+`provision-production.sh` 会生成独立 SSO 密钥、写入中央 API 的 shared `.env`，清除其配置缓存并重启 Octane。随后推送或重跑本仓库 `main` 工作流，self-hosted runner 会先部署 API，再部署 Web，并执行健康检查与失败回滚。

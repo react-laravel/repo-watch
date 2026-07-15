@@ -119,6 +119,14 @@ set_env "$central_env" REPO_WATCH_SSO_CLIENT_SECRET "$sso_secret"
 set_env "$central_env" REPO_WATCH_SSO_CALLBACK_URL "https://repo-watch.dogeow.com/auth/callback"
 set_env "$central_env" REPO_WATCH_SSO_RETURN_ORIGINS "https://repo-watch.dogeow.com,http://localhost:3012,http://127.0.0.1:3012"
 
+central_artisan=/var/www/dogeow-api/current/artisan
+if [ -f "$central_artisan" ]; then
+  php "$central_artisan" config:clear
+  systemctl restart dogeow-octane.service
+else
+  echo "warning: central dogeow-api current release not found; deploy it before testing SSO" >&2
+fi
+
 install -o root -g root -m 644 "$SOURCE_ROOT/deploy/nginx-repo-watch.conf" /etc/nginx/conf.d/repo-watch.dogeow.com.conf
 install -o root -g root -m 644 "$SOURCE_ROOT/deploy/supervisor-repo-watch-api.conf" /etc/supervisor/conf.d/repo-watch-api.conf
 install -o root -g root -m 644 "$SOURCE_ROOT/deploy/repo-watch-api.cron" /etc/cron.d/repo-watch-api
