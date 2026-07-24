@@ -62,6 +62,6 @@ if [ "$healthy" != true ]; then
 fi
 
 find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -name '20*' -printf '%T@ %p\n' \
-  | sort -nr | tail -n +4 | cut -d' ' -f2- | xargs -r rm -rf
+  | sort -nr | tail -n +2 | cut -d' ' -f2- | xargs -r rm -rf
 
 pm2 save
