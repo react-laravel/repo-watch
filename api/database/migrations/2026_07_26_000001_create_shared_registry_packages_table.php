@@ -78,10 +78,64 @@ return new class extends Migration
 
     public function down(): void
     {
+        DB::table('registry_packages')
+            ->orderBy('id')
+            ->each(function (object $registryPackage): void {
+                DB::table('watched_packages')
+                    ->where('registry_package_id', $registryPackage->id)
+                    ->orderBy('id')
+                    ->each(function (object $watchedPackage) use ($registryPackage): void {
+                        DB::table('watched_packages')
+                            ->where('id', $watchedPackage->id)
+                            ->update([
+                                'latest_version' => $registryPackage->latest_version,
+                                'latest_update_type' => $this->detectUpdateType(
+                                    $watchedPackage->normalized_current_version,
+                                    $registryPackage->latest_version
+                                ),
+                                'registry_url' => $registryPackage->registry_url,
+                                'last_checked_at' => $registryPackage->last_checked_at,
+                                'last_error' => $registryPackage->last_error,
+                            ]);
+                    });
+            });
+
         Schema::table('watched_packages', function (Blueprint $table) {
             $table->dropConstrainedForeignId('registry_package_id');
         });
 
         Schema::dropIfExists('registry_packages');
+    }
+
+    private function detectUpdateType(?string $currentVersion, ?string $latestVersion): ?string
+    {
+        $current = $this->parseVersion($currentVersion);
+        $latest = $this->parseVersion($latestVersion);
+
+        if ($current === null || $latest === null || version_compare($latestVersion, $currentVersion, '<=')) {
+            return null;
+        }
+
+        if ($latest[0] !== $current[0]) {
+            return 'major';
+        }
+
+        if ($latest[1] !== $current[1]) {
+            return 'minor';
+        }
+
+        return $latest[2] !== $current[2] ? 'patch' : null;
+    }
+
+    /**
+     * @return array{0: int, 1: int, 2: int}|null
+     */
+    private function parseVersion(?string $version): ?array
+    {
+        if (! is_string($version) || preg_match('/(\d+)\.(\d+)\.(\d+)/', $version, $matches) !== 1) {
+            return null;
+        }
+
+        return [(int) $matches[1], (int) $matches[2], (int) $matches[3]];
     }
 };
