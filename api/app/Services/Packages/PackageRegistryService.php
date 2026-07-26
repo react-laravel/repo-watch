@@ -239,7 +239,7 @@ class PackageRegistryService
         ];
     }
 
-    private function detectUpdateType(?string $currentVersion, ?string $latestVersion): ?string
+    public function detectUpdateType(?string $currentVersion, ?string $latestVersion): ?string
     {
         if (! $currentVersion || ! $latestVersion) {
             return null;

@@ -4,12 +4,14 @@ namespace App\Models\Repo;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WatchedPackage extends Model
 {
     use HasFactory;
 
     protected $fillable = [
+        'registry_package_id',
         'user_id',
         'source_provider',
         'source_owner',
@@ -34,7 +36,13 @@ class WatchedPackage extends Model
         return [
             'last_checked_at' => 'datetime',
             'metadata' => 'array',
+            'registry_package_id' => 'integer',
             'user_id' => 'integer',
         ];
+    }
+
+    public function registryPackage(): BelongsTo
+    {
+        return $this->belongsTo(RegistryPackage::class);
     }
 }

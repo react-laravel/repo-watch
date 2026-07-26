@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Controllers;
 
-use App\Jobs\RefreshWatchedPackages;
+use App\Jobs\RefreshRegistryPackages;
+use App\Models\Repo\RegistryPackage;
+use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -162,8 +164,8 @@ class RepositoryWatchControllerTest extends TestCase
         $this->assertCount(2, $createResponse->json('data'));
         $this->assertNull($createResponse->json('data.1.latest_version'));
         Queue::assertPushed(
-            RefreshWatchedPackages::class,
-            fn (RefreshWatchedPackages $job) => $job->userId === 42 && count($job->packageIds) === 2
+            RefreshRegistryPackages::class,
+            fn (RefreshRegistryPackages $job) => count($job->registryPackageIds) === 2
         );
         $firstId = $createResponse->json('data.0.id');
 
@@ -238,14 +240,58 @@ class RepositoryWatchControllerTest extends TestCase
             'packages' => $packages,
         ])->assertCreated()
             ->assertJsonCount(75, 'data')
-            ->assertJsonPath('message', '依赖关注已保存，最新版本正在后台刷新');
+            ->assertJsonPath('message', '依赖关注已保存，共享最新版本正在后台刷新');
 
         $this->assertDatabaseCount('watched_packages', 75);
+        $this->assertDatabaseCount('registry_packages', 75);
         Http::assertNothingSent();
         Queue::assertPushed(
-            RefreshWatchedPackages::class,
-            fn (RefreshWatchedPackages $job) => $job->userId === 42 && count($job->packageIds) === 75
+            RefreshRegistryPackages::class,
+            fn (RefreshRegistryPackages $job) => count($job->registryPackageIds) === 75
         );
+    }
+
+    public function test_multiple_users_share_one_registry_package_and_one_registry_query(): void
+    {
+        Queue::fake();
+        Http::fake([
+            'https://registry.npmjs.org/react' => Http::response([
+                'dist-tags' => ['latest' => '19.1.0'],
+            ], 200),
+        ]);
+        $payload = [
+            'source_url' => 'https://github.com/acme/shared-repository',
+            'source_owner' => 'acme',
+            'source_repo' => 'shared-repository',
+            'packages' => [[
+                'ecosystem' => 'npm',
+                'package_name' => 'react',
+                'manifest_path' => 'package.json',
+                'current_version_constraint' => '^18.2.0',
+                'normalized_current_version' => '18.2.0',
+                'current_version_source' => 'lock',
+                'watch_level' => 'major',
+                'dependency_group' => 'dependencies',
+            ]],
+        ];
+
+        $this->withRepoWatchIdentity(42)
+            ->postJson('/api/repo-watch/packages', $payload)
+            ->assertCreated();
+        $this->withRepoWatchIdentity(99)
+            ->postJson('/api/repo-watch/packages', $payload)
+            ->assertCreated();
+
+        $this->assertDatabaseCount('watched_packages', 2);
+        $this->assertDatabaseCount('registry_packages', 1);
+
+        $registryPackage = RegistryPackage::query()->sole();
+        $refreshService = app(PackageWatchRefreshService::class);
+
+        $this->assertSame(1, $refreshService->refreshRegistryPackageIds([$registryPackage->id], onlyStale: true));
+        $this->assertSame(0, $refreshService->refreshRegistryPackageIds([$registryPackage->id], onlyStale: true));
+        Http::assertSentCount(1);
+        $this->assertSame('19.1.0', $registryPackage->fresh()->latest_version);
     }
 
     public function test_user_can_batch_delete_watched_packages(): void

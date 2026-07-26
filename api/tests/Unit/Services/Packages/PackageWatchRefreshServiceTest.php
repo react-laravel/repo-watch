@@ -53,10 +53,16 @@ class PackageWatchRefreshServiceTest extends TestCase
         $result = $this->service->refreshPackage($package);
 
         // Assert
-        $this->assertEquals('4.17.21', $result->latest_version);
-        $this->assertEquals('patch', $result->latest_update_type);
-        $this->assertNotNull($result->last_checked_at);
-        $this->assertNull($result->last_error);
+        $this->assertEquals('4.17.21', $result->registryPackage->latest_version);
+        $this->assertEquals(
+            'patch',
+            (new PackageRegistryService)->detectUpdateType(
+                $result->normalized_current_version,
+                $result->registryPackage->latest_version
+            )
+        );
+        $this->assertNotNull($result->registryPackage->last_checked_at);
+        $this->assertNull($result->registryPackage->last_error);
     }
 
     #[Test]
@@ -91,7 +97,38 @@ class PackageWatchRefreshServiceTest extends TestCase
         $result = $this->service->refreshPackage($package);
 
         // Assert
-        $this->assertNull($result->last_error);
+        $this->assertNull($result->registryPackage->last_error);
+    }
+
+    #[Test]
+    public function failed_shared_registry_refresh_preserves_the_last_known_version(): void
+    {
+        $package = WatchedPackage::create([
+            'user_id' => 1,
+            'source_provider' => 'github',
+            'source_owner' => 'test-owner',
+            'source_repo' => 'test-repo',
+            'source_url' => 'https://github.com/test-owner/test-repo',
+            'ecosystem' => 'npm',
+            'package_name' => 'lodash',
+            'current_version_constraint' => '^4.17.20',
+            'normalized_current_version' => '4.17.20',
+            'latest_version' => '4.17.21',
+            'watch_level' => 'patch',
+            'last_checked_at' => now()->subHours(7),
+        ]);
+
+        Http::fake([
+            'https://registry.npmjs.org/lodash' => Http::response([], 503),
+        ]);
+
+        $result = $this->service->refreshPackage($package);
+
+        $this->assertSame('4.17.21', $result->registryPackage->latest_version);
+        $this->assertSame(
+            'Registry did not return a latest version.',
+            $result->registryPackage->last_error
+        );
     }
 
     #[Test]
@@ -201,7 +238,7 @@ class PackageWatchRefreshServiceTest extends TestCase
         $count = $this->service->refreshPackageIds(42, [$ownPackage->id, $otherPackage->id]);
 
         $this->assertSame(1, $count);
-        $this->assertSame('2.0.0', $ownPackage->fresh()->latest_version);
+        $this->assertSame('2.0.0', $ownPackage->fresh('registryPackage')->registryPackage->latest_version);
         $this->assertNull($otherPackage->fresh()->last_checked_at);
         Http::assertSentCount(1);
     }
@@ -372,6 +409,6 @@ class PackageWatchRefreshServiceTest extends TestCase
         $count = $this->service->refreshStalePackages(6);
 
         $this->assertEquals(1, $count);
-        $this->assertEquals('1.5.0', $package->fresh()->latest_version);
+        $this->assertEquals('1.5.0', $package->fresh('registryPackage')->registryPackage->latest_version);
     }
 }

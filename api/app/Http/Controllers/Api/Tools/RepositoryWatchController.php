@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Tools\DestroyWatchedPackagesBatchRequest;
 use App\Http\Requests\Tools\PreviewDependenciesRequest;
 use App\Http\Requests\Tools\StoreWatchedPackagesRequest;
-use App\Jobs\RefreshWatchedPackages;
+use App\Jobs\RefreshRegistryPackages;
+use App\Models\Repo\RegistryPackage;
 use App\Models\Repo\WatchedPackage;
 use App\Services\Github\GithubDependencyScannerService;
 use App\Services\Github\GithubRepositoryWatcherService;
+use App\Services\Packages\PackageRegistryService;
 use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +26,7 @@ class RepositoryWatchController extends Controller
     public function __construct(
         private readonly GithubRepositoryWatcherService $repositoryWatcherService,
         private readonly GithubDependencyScannerService $scannerService,
+        private readonly PackageRegistryService $registryService,
         private readonly PackageWatchRefreshService $refreshService,
     ) {}
 
@@ -45,17 +48,25 @@ class RepositoryWatchController extends Controller
     public function index(Request $request): JsonResponse
     {
         $packages = WatchedPackage::query()
+            ->with('registryPackage')
             ->where('user_id', $request->user()->id)
             ->select([
-                'id', 'user_id', 'source_provider', 'source_owner', 'source_repo', 'source_url',
-                'ecosystem', 'package_name', 'manifest_path', 'current_version_constraint',
-                'normalized_current_version', 'latest_version', 'watch_level', 'latest_update_type',
-                'registry_url', 'last_checked_at', 'last_error', 'metadata', 'updated_at',
+                'id', 'registry_package_id', 'user_id', 'source_provider', 'source_owner',
+                'source_repo', 'source_url', 'ecosystem', 'package_name', 'manifest_path',
+                'current_version_constraint', 'normalized_current_version', 'latest_version',
+                'watch_level', 'latest_update_type', 'registry_url', 'last_checked_at',
+                'last_error', 'metadata', 'updated_at',
             ])
-            ->orderByRaw("CASE latest_update_type WHEN 'major' THEN 1 WHEN 'minor' THEN 2 WHEN 'patch' THEN 3 ELSE 4 END")
             ->orderByDesc('updated_at')
             ->get()
-            ->map(fn (WatchedPackage $package) => $this->transformPackage($package));
+            ->map(fn (WatchedPackage $package) => $this->transformPackage($package))
+            ->sortBy(fn (array $package) => match ($package['latest_update_type']) {
+                'major' => 1,
+                'minor' => 2,
+                'patch' => 3,
+                default => 4,
+            })
+            ->values();
 
         return $this->success($packages);
     }
@@ -79,73 +90,111 @@ class RepositoryWatchController extends Controller
 
         $normalizedOwner = Str::lower($parsedOwner);
         $normalizedRepo = Str::lower($parsedRepo);
-
         $userId = (int) $request->user()->id;
         $timestamp = now();
-        $packageRows = collect($validated['packages'])
-            ->map(fn (array $packageData) => [
-                'user_id' => $userId,
-                'source_provider' => 'github',
-                'source_owner' => $normalizedOwner,
-                'source_repo' => $normalizedRepo,
-                'source_url' => $validated['source_url'],
-                'ecosystem' => $packageData['ecosystem'],
-                'package_name' => $packageData['package_name'],
-                'manifest_path' => $packageData['manifest_path'] ?? null,
-                'current_version_constraint' => $packageData['current_version_constraint'] ?? null,
-                'normalized_current_version' => $packageData['normalized_current_version'] ?? null,
-                'latest_version' => null,
-                'watch_level' => $packageData['watch_level'],
-                'latest_update_type' => null,
-                'registry_url' => null,
-                'last_checked_at' => null,
-                'last_error' => null,
-                'metadata' => json_encode([
-                    'dependency_group' => $packageData['dependency_group'] ?? null,
-                    'current_version_source' => $packageData['current_version_source'] ?? null,
-                ], JSON_THROW_ON_ERROR),
-                'created_at' => $timestamp,
-                'updated_at' => $timestamp,
-            ])
-            ->keyBy(fn (array $row) => "{$row['ecosystem']}:{$row['package_name']}")
+        $selectedPackages = collect($validated['packages'])
+            ->keyBy(fn (array $package) => "{$package['ecosystem']}:{$package['package_name']}")
             ->values();
 
-        $savedPackages = DB::transaction(function () use (
-            $packageRows,
+        [$createdPackages, $registryPackageIds] = DB::transaction(function () use (
+            $selectedPackages,
+            $validated,
             $userId,
             $normalizedOwner,
             $normalizedRepo,
+            $timestamp,
         ) {
+            RegistryPackage::query()->insertOrIgnore(
+                $selectedPackages->map(fn (array $package) => [
+                    'ecosystem' => $package['ecosystem'],
+                    'package_name' => $package['package_name'],
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
+                ])->all()
+            );
+
+            $registryPackages = RegistryPackage::query()
+                ->where(function ($query) use ($selectedPackages) {
+                    foreach ($selectedPackages->groupBy('ecosystem') as $ecosystem => $packages) {
+                        $query->orWhere(function ($query) use ($ecosystem, $packages) {
+                            $query->where('ecosystem', $ecosystem)
+                                ->whereIn('package_name', $packages->pluck('package_name'));
+                        });
+                    }
+                })
+                ->get()
+                ->keyBy(fn (RegistryPackage $package) => "{$package->ecosystem}:{$package->package_name}");
+
+            $packageRows = $selectedPackages->map(function (array $package) use (
+                $registryPackages,
+                $validated,
+                $userId,
+                $normalizedOwner,
+                $normalizedRepo,
+                $timestamp,
+            ) {
+                /** @var RegistryPackage $registryPackage */
+                $registryPackage = $registryPackages->get(
+                    "{$package['ecosystem']}:{$package['package_name']}"
+                );
+
+                return [
+                    'registry_package_id' => $registryPackage->id,
+                    'user_id' => $userId,
+                    'source_provider' => 'github',
+                    'source_owner' => $normalizedOwner,
+                    'source_repo' => $normalizedRepo,
+                    'source_url' => $validated['source_url'],
+                    'ecosystem' => $package['ecosystem'],
+                    'package_name' => $package['package_name'],
+                    'manifest_path' => $package['manifest_path'] ?? null,
+                    'current_version_constraint' => $package['current_version_constraint'] ?? null,
+                    'normalized_current_version' => $package['normalized_current_version'] ?? null,
+                    'watch_level' => $package['watch_level'],
+                    'metadata' => json_encode([
+                        'dependency_group' => $package['dependency_group'] ?? null,
+                        'current_version_source' => $package['current_version_source'] ?? null,
+                    ], JSON_THROW_ON_ERROR),
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
+                ];
+            });
+
             WatchedPackage::query()->upsert(
                 $packageRows->all(),
                 ['user_id', 'source_provider', 'source_owner', 'source_repo', 'ecosystem', 'package_name'],
                 [
-                    'source_url', 'manifest_path', 'current_version_constraint',
-                    'normalized_current_version', 'latest_version', 'watch_level',
-                    'latest_update_type', 'registry_url', 'last_checked_at', 'last_error',
-                    'metadata', 'updated_at',
+                    'registry_package_id', 'source_url', 'manifest_path',
+                    'current_version_constraint', 'normalized_current_version',
+                    'watch_level', 'metadata', 'updated_at',
                 ]
             );
 
-            return WatchedPackage::query()
+            $savedPackages = WatchedPackage::query()
+                ->with('registryPackage')
                 ->where('user_id', $userId)
                 ->where('source_provider', 'github')
                 ->where('source_owner', $normalizedOwner)
                 ->where('source_repo', $normalizedRepo)
                 ->get()
                 ->keyBy(fn (WatchedPackage $package) => "{$package->ecosystem}:{$package->package_name}");
+
+            return [
+                $selectedPackages
+                    ->map(fn (array $package) => $savedPackages->get(
+                        "{$package['ecosystem']}:{$package['package_name']}"
+                    ))
+                    ->filter()
+                    ->values(),
+                $registryPackages->pluck('id')->values()->all(),
+            ];
         });
 
-        $createdPackages = $packageRows
-            ->map(fn (array $row) => $savedPackages->get("{$row['ecosystem']}:{$row['package_name']}"))
-            ->filter()
-            ->values();
-
-        RefreshWatchedPackages::dispatch($userId, $createdPackages->pluck('id')->all());
+        RefreshRegistryPackages::dispatch($registryPackageIds);
 
         return $this->success(
             $createdPackages->map(fn (WatchedPackage $package) => $this->transformPackage($package))->all(),
-            '依赖关注已保存，最新版本正在后台刷新',
+            '依赖关注已保存，共享最新版本正在后台刷新',
             201
         );
     }
@@ -186,8 +235,18 @@ class RepositoryWatchController extends Controller
 
     private function transformPackage(WatchedPackage $package): array
     {
-        $matchesPreference = $package->latest_update_type !== null && $package->watch_level === $package->latest_update_type;
-        $latestVersion = $package->latest_version;
+        /** @var RegistryPackage|null $registryPackage */
+        $registryPackage = $package->getRelationValue('registryPackage');
+        $latestVersion = $registryPackage instanceof RegistryPackage
+            ? $registryPackage->latest_version
+            : $package->getRawOriginal('latest_version');
+        $latestUpdateType = $registryPackage instanceof RegistryPackage
+            ? $this->registryService->detectUpdateType(
+                $package->normalized_current_version,
+                $latestVersion
+            )
+            : $package->getRawOriginal('latest_update_type');
+        $matchesPreference = $latestUpdateType !== null && $package->watch_level === $latestUpdateType;
 
         if ($package->ecosystem === 'composer' && is_string($latestVersion)) {
             if (preg_match('/(\d+\.\d+\.\d+)(?:\.\d+)?/', $latestVersion, $matches) === 1) {
@@ -208,11 +267,17 @@ class RepositoryWatchController extends Controller
             'normalized_current_version' => $package->normalized_current_version,
             'latest_version' => $latestVersion,
             'watch_level' => $package->watch_level,
-            'latest_update_type' => $package->latest_update_type,
+            'latest_update_type' => $latestUpdateType,
             'matches_preference' => $matchesPreference,
-            'registry_url' => $package->registry_url,
-            'last_checked_at' => $package->last_checked_at,
-            'last_error' => $package->last_error,
+            'registry_url' => $registryPackage instanceof RegistryPackage
+                ? $registryPackage->registry_url
+                : $package->getRawOriginal('registry_url'),
+            'last_checked_at' => $registryPackage instanceof RegistryPackage
+                ? $registryPackage->last_checked_at
+                : $package->getRawOriginal('last_checked_at'),
+            'last_error' => $registryPackage instanceof RegistryPackage
+                ? $registryPackage->last_error
+                : $package->getRawOriginal('last_error'),
             'metadata' => $package->metadata,
             'current_version_source' => Arr::get($package->metadata ?? [], 'current_version_source'),
         ];
