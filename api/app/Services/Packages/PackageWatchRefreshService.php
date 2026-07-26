@@ -48,6 +48,22 @@ class PackageWatchRefreshService
         return $packages->count();
     }
 
+    /**
+     * @param  array<int, int>  $packageIds
+     */
+    public function refreshPackageIds(int $userId, array $packageIds): int
+    {
+        /** @var Collection<int, WatchedPackage> $packages */
+        $packages = WatchedPackage::query()
+            ->where('user_id', $userId)
+            ->whereIn('id', $packageIds)
+            ->get();
+
+        $this->refreshPackages($packages);
+
+        return $packages->count();
+    }
+
     public function refreshStalePackages(?int $staleHours = null): int
     {
         $hours = $staleHours ?? config('services.github.repo_watch_refresh_hours', 6);

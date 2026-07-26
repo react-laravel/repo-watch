@@ -69,6 +69,12 @@ export default function RepoWatchTool({
     }
   }, [])
 
+  const scheduleVersionRefreshSync = useCallback(() => {
+    for (const delay of [2000, 5000, 10000, 20000]) {
+      window.setTimeout(() => void loadWatchedPackages(), delay)
+    }
+  }, [loadWatchedPackages])
+
   useEffect(() => {
     // Initial data synchronization intentionally updates local request state.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -230,13 +236,14 @@ export default function RepoWatchTool({
       })
       setSelectedRepoKey(repoKeyOf(saved[0]))
       resetAddPanel()
-      toast.success(`已新增 ${saved.length} 个依赖关注`)
+      scheduleVersionRefreshSync()
+      toast.success(`已保存 ${saved.length} 个依赖，正在后台获取最新版本`)
     } finally {
       setSaving(false)
     }
     // resetAddPanel is stable and declared below to keep related handlers together.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dependencies, preview, url])
+  }, [dependencies, preview, scheduleVersionRefreshSync, url])
 
   const handleRefresh = useCallback(async (id: number) => {
     setActiveAction({ id, type: 'refresh' })
@@ -326,7 +333,8 @@ export default function RepoWatchTool({
             }
             return merged
           })
-          toast.success(`已关注 ${saved.length} 个依赖`)
+          scheduleVersionRefreshSync()
+          toast.success(`已保存 ${saved.length} 个依赖，正在后台获取最新版本`)
         } finally {
           setRepoSettingsActionKey(null)
         }
@@ -350,7 +358,13 @@ export default function RepoWatchTool({
         }
       }
     },
-    [selectedRepoSample, selectedRepoWatchedMap, selectedRepoPackages, repoSettingsPreview]
+    [
+      selectedRepoSample,
+      selectedRepoWatchedMap,
+      selectedRepoPackages,
+      repoSettingsPreview,
+      scheduleVersionRefreshSync,
+    ]
   )
 
   const handleToggleRepoSettingPackage = useCallback(
@@ -395,13 +409,14 @@ export default function RepoWatchTool({
             }
             return merged
           })
-          toast.success('已加入关注')
+          scheduleVersionRefreshSync()
+          toast.success('已加入关注，正在后台获取最新版本')
         }
       } finally {
         setRepoSettingsActionKey(null)
       }
     },
-    [selectedRepoSample]
+    [scheduleVersionRefreshSync, selectedRepoSample]
   )
 
   const resetAddPanel = useCallback(() => {

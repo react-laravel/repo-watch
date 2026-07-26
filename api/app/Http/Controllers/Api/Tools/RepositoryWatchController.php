@@ -6,14 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Tools\DestroyWatchedPackagesBatchRequest;
 use App\Http\Requests\Tools\PreviewDependenciesRequest;
 use App\Http\Requests\Tools\StoreWatchedPackagesRequest;
+use App\Jobs\RefreshWatchedPackages;
 use App\Models\Repo\WatchedPackage;
 use App\Services\Github\GithubDependencyScannerService;
 use App\Services\Github\GithubRepositoryWatcherService;
-use App\Services\Packages\PackageRegistryService;
 use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
@@ -23,7 +24,6 @@ class RepositoryWatchController extends Controller
     public function __construct(
         private readonly GithubRepositoryWatcherService $repositoryWatcherService,
         private readonly GithubDependencyScannerService $scannerService,
-        private readonly PackageRegistryService $registryService,
         private readonly PackageWatchRefreshService $refreshService,
     ) {}
 
@@ -80,62 +80,74 @@ class RepositoryWatchController extends Controller
         $normalizedOwner = Str::lower($parsedOwner);
         $normalizedRepo = Str::lower($parsedRepo);
 
-        $registryResults = $this->registryService->resolveLatestMany(
-            array_map(
-                fn (array $packageData) => [
-                    'ecosystem' => $packageData['ecosystem'],
-                    'package_name' => $packageData['package_name'],
-                    'current_version' => $packageData['normalized_current_version'] ?? null,
-                ],
-                $validated['packages']
-            )
-        );
-
-        $createdPackages = [];
-
-        foreach ($validated['packages'] as $packageData) {
-            $registryKey = implode(':', [
-                $packageData['ecosystem'],
-                $packageData['package_name'],
-                $packageData['normalized_current_version'] ?? 'null',
-            ]);
-            $registry = $registryResults[$registryKey] ?? [
+        $userId = (int) $request->user()->id;
+        $timestamp = now();
+        $packageRows = collect($validated['packages'])
+            ->map(fn (array $packageData) => [
+                'user_id' => $userId,
+                'source_provider' => 'github',
+                'source_owner' => $normalizedOwner,
+                'source_repo' => $normalizedRepo,
+                'source_url' => $validated['source_url'],
+                'ecosystem' => $packageData['ecosystem'],
+                'package_name' => $packageData['package_name'],
+                'manifest_path' => $packageData['manifest_path'] ?? null,
+                'current_version_constraint' => $packageData['current_version_constraint'] ?? null,
+                'normalized_current_version' => $packageData['normalized_current_version'] ?? null,
                 'latest_version' => null,
+                'watch_level' => $packageData['watch_level'],
+                'latest_update_type' => null,
                 'registry_url' => null,
-                'update_type' => null,
-            ];
+                'last_checked_at' => null,
+                'last_error' => null,
+                'metadata' => json_encode([
+                    'dependency_group' => $packageData['dependency_group'] ?? null,
+                    'current_version_source' => $packageData['current_version_source'] ?? null,
+                ], JSON_THROW_ON_ERROR),
+                'created_at' => $timestamp,
+                'updated_at' => $timestamp,
+            ])
+            ->keyBy(fn (array $row) => "{$row['ecosystem']}:{$row['package_name']}")
+            ->values();
 
-            $watchedPackage = WatchedPackage::updateOrCreate(
+        $savedPackages = DB::transaction(function () use (
+            $packageRows,
+            $userId,
+            $normalizedOwner,
+            $normalizedRepo,
+        ) {
+            WatchedPackage::query()->upsert(
+                $packageRows->all(),
+                ['user_id', 'source_provider', 'source_owner', 'source_repo', 'ecosystem', 'package_name'],
                 [
-                    'user_id' => $request->user()->id,
-                    'source_provider' => 'github',
-                    'source_owner' => $normalizedOwner,
-                    'source_repo' => $normalizedRepo,
-                    'ecosystem' => $packageData['ecosystem'],
-                    'package_name' => $packageData['package_name'],
-                ],
-                [
-                    'source_url' => $validated['source_url'],
-                    'manifest_path' => $packageData['manifest_path'] ?? null,
-                    'current_version_constraint' => $packageData['current_version_constraint'] ?? null,
-                    'normalized_current_version' => $packageData['normalized_current_version'] ?? null,
-                    'latest_version' => $registry['latest_version'],
-                    'watch_level' => $packageData['watch_level'],
-                    'latest_update_type' => $registry['update_type'],
-                    'registry_url' => $registry['registry_url'],
-                    'last_checked_at' => now(),
-                    'last_error' => null,
-                    'metadata' => [
-                        'dependency_group' => $packageData['dependency_group'] ?? null,
-                        'current_version_source' => $packageData['current_version_source'] ?? null,
-                    ],
+                    'source_url', 'manifest_path', 'current_version_constraint',
+                    'normalized_current_version', 'latest_version', 'watch_level',
+                    'latest_update_type', 'registry_url', 'last_checked_at', 'last_error',
+                    'metadata', 'updated_at',
                 ]
             );
 
-            $createdPackages[] = $this->transformPackage($watchedPackage);
-        }
+            return WatchedPackage::query()
+                ->where('user_id', $userId)
+                ->where('source_provider', 'github')
+                ->where('source_owner', $normalizedOwner)
+                ->where('source_repo', $normalizedRepo)
+                ->get()
+                ->keyBy(fn (WatchedPackage $package) => "{$package->ecosystem}:{$package->package_name}");
+        });
 
-        return $this->success($createdPackages, '依赖关注已保存', 201);
+        $createdPackages = $packageRows
+            ->map(fn (array $row) => $savedPackages->get("{$row['ecosystem']}:{$row['package_name']}"))
+            ->filter()
+            ->values();
+
+        RefreshWatchedPackages::dispatch($userId, $createdPackages->pluck('id')->all());
+
+        return $this->success(
+            $createdPackages->map(fn (WatchedPackage $package) => $this->transformPackage($package))->all(),
+            '依赖关注已保存，最新版本正在后台刷新',
+            201
+        );
     }
 
     public function destroyBatch(DestroyWatchedPackagesBatchRequest $request): JsonResponse

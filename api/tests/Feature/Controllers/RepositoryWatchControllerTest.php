@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Controllers;
 
+use App\Jobs\RefreshWatchedPackages;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class RepositoryWatchControllerTest extends TestCase
@@ -112,6 +114,7 @@ class RepositoryWatchControllerTest extends TestCase
     public function test_user_can_save_refresh_and_delete_watched_packages(): void
     {
         $this->withRepoWatchIdentity();
+        Queue::fake();
 
         Http::fake([
             'https://registry.npmjs.org/react' => Http::response([
@@ -157,7 +160,11 @@ class RepositoryWatchControllerTest extends TestCase
         ])->assertCreated();
 
         $this->assertCount(2, $createResponse->json('data'));
-        $this->assertSame('12.1.0', $createResponse->json('data.1.latest_version'));
+        $this->assertNull($createResponse->json('data.1.latest_version'));
+        Queue::assertPushed(
+            RefreshWatchedPackages::class,
+            fn (RefreshWatchedPackages $job) => $job->userId === 42 && count($job->packageIds) === 2
+        );
         $firstId = $createResponse->json('data.0.id');
 
         $this->getJson('/api/repo-watch/packages')
@@ -203,6 +210,7 @@ class RepositoryWatchControllerTest extends TestCase
     public function test_user_can_save_more_than_fifty_watched_packages_in_one_request(): void
     {
         $this->withRepoWatchIdentity();
+        Queue::fake();
 
         Http::fake([
             'https://registry.npmjs.org/*' => Http::response([
@@ -230,15 +238,20 @@ class RepositoryWatchControllerTest extends TestCase
             'packages' => $packages,
         ])->assertCreated()
             ->assertJsonCount(75, 'data')
-            ->assertJsonPath('message', '依赖关注已保存');
+            ->assertJsonPath('message', '依赖关注已保存，最新版本正在后台刷新');
 
         $this->assertDatabaseCount('watched_packages', 75);
-        Http::assertSentCount(75);
+        Http::assertNothingSent();
+        Queue::assertPushed(
+            RefreshWatchedPackages::class,
+            fn (RefreshWatchedPackages $job) => $job->userId === 42 && count($job->packageIds) === 75
+        );
     }
 
     public function test_user_can_batch_delete_watched_packages(): void
     {
         $this->withRepoWatchIdentity();
+        Queue::fake();
 
         Http::fake([
             'https://registry.npmjs.org/react' => Http::response([

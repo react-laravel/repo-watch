@@ -167,6 +167,46 @@ class PackageWatchRefreshServiceTest extends TestCase
     }
 
     #[Test]
+    public function refresh_package_ids_only_refreshes_packages_owned_by_the_user(): void
+    {
+        $ownPackage = WatchedPackage::create([
+            'user_id' => 42,
+            'source_provider' => 'github',
+            'source_owner' => 'owner',
+            'source_repo' => 'repo',
+            'source_url' => 'https://github.com/owner/repo',
+            'ecosystem' => 'npm',
+            'package_name' => 'owned-package',
+            'manifest_path' => 'package.json',
+            'normalized_current_version' => '1.0.0',
+        ]);
+        $otherPackage = WatchedPackage::create([
+            'user_id' => 99,
+            'source_provider' => 'github',
+            'source_owner' => 'owner',
+            'source_repo' => 'repo',
+            'source_url' => 'https://github.com/owner/repo',
+            'ecosystem' => 'npm',
+            'package_name' => 'other-package',
+            'manifest_path' => 'package.json',
+            'normalized_current_version' => '1.0.0',
+        ]);
+
+        Http::fake([
+            'registry.npmjs.org/owned-package' => Http::response([
+                'dist-tags' => ['latest' => '2.0.0'],
+            ], 200),
+        ]);
+
+        $count = $this->service->refreshPackageIds(42, [$ownPackage->id, $otherPackage->id]);
+
+        $this->assertSame(1, $count);
+        $this->assertSame('2.0.0', $ownPackage->fresh()->latest_version);
+        $this->assertNull($otherPackage->fresh()->last_checked_at);
+        Http::assertSentCount(1);
+    }
+
+    #[Test]
     public function refresh_stale_packages_refreshes_packages_not_checked_recently(): void
     {
         // Arrange
