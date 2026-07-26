@@ -62,6 +62,7 @@ class PackageWatchRefreshServiceTest extends TestCase
             )
         );
         $this->assertNotNull($result->registryPackage->last_checked_at);
+        $this->assertNotNull($result->registryPackage->last_succeeded_at);
         $this->assertNull($result->registryPackage->last_error);
     }
 

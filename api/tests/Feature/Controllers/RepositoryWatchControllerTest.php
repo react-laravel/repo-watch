@@ -220,7 +220,7 @@ class RepositoryWatchControllerTest extends TestCase
             ], 200),
         ]);
 
-        $packages = collect(range(1, 75))
+        $packages = collect(range(1, 205))
             ->map(fn (int $index) => [
                 'ecosystem' => 'npm',
                 'package_name' => "package-{$index}",
@@ -239,15 +239,17 @@ class RepositoryWatchControllerTest extends TestCase
             'source_repo' => 'large-repository',
             'packages' => $packages,
         ])->assertCreated()
-            ->assertJsonCount(75, 'data')
+            ->assertJsonCount(205, 'data')
             ->assertJsonPath('message', '依赖关注已保存，共享最新版本正在后台刷新');
 
-        $this->assertDatabaseCount('watched_packages', 75);
-        $this->assertDatabaseCount('registry_packages', 75);
+        $this->assertDatabaseCount('watched_packages', 205);
+        $this->assertDatabaseCount('registry_packages', 205);
         Http::assertNothingSent();
-        Queue::assertPushed(
-            RefreshRegistryPackages::class,
-            fn (RefreshRegistryPackages $job) => count($job->registryPackageIds) === 75
+        $this->assertSame(
+            [100, 100, 5],
+            Queue::pushed(RefreshRegistryPackages::class)
+                ->map(fn (RefreshRegistryPackages $job) => count($job->registryPackageIds))
+                ->all()
         );
     }
 
@@ -264,6 +266,15 @@ class RepositoryWatchControllerTest extends TestCase
             'source_owner' => 'acme',
             'source_repo' => 'shared-repository',
             'packages' => [[
+                'ecosystem' => ' NPM ',
+                'package_name' => ' React ',
+                'manifest_path' => 'package.json',
+                'current_version_constraint' => '^18.2.0',
+                'normalized_current_version' => '18.2.0',
+                'current_version_source' => 'lock',
+                'watch_level' => 'major',
+                'dependency_group' => 'dependencies',
+            ], [
                 'ecosystem' => 'npm',
                 'package_name' => 'react',
                 'manifest_path' => 'package.json',
@@ -284,6 +295,10 @@ class RepositoryWatchControllerTest extends TestCase
 
         $this->assertDatabaseCount('watched_packages', 2);
         $this->assertDatabaseCount('registry_packages', 1);
+        $this->assertDatabaseHas('registry_packages', [
+            'ecosystem' => 'npm',
+            'package_name' => 'react',
+        ]);
 
         $registryPackage = RegistryPackage::query()->sole();
         $refreshService = app(PackageWatchRefreshService::class);

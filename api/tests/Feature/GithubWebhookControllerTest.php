@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\RefreshRegistryPackages;
 use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Queue;
 use Mockery;
 use Tests\TestCase;
 
@@ -30,6 +32,7 @@ class GithubWebhookControllerTest extends TestCase
 
     public function test_push_webhook_refreshes_the_matching_repository(): void
     {
+        Queue::fake();
         Config::set('services.github.webhook_secret', 'test-secret');
         $payload = [
             'repository' => [
@@ -40,10 +43,10 @@ class GithubWebhookControllerTest extends TestCase
         $raw = json_encode($payload, JSON_UNESCAPED_UNICODE);
 
         $service = Mockery::mock(PackageWatchRefreshService::class);
-        $service->shouldReceive('refreshRepositoryPackages')
+        $service->shouldReceive('registryPackageIdsForRepository')
             ->once()
             ->with('react-laravel', 'repo-watch')
-            ->andReturn(3);
+            ->andReturn([11, 12, 13]);
         $this->app->instance(PackageWatchRefreshService::class, $service);
 
         $this->withHeaders([
@@ -52,5 +55,10 @@ class GithubWebhookControllerTest extends TestCase
         ])->postJson('/api/github/webhooks/repo-watch', $payload)
             ->assertOk()
             ->assertJsonPath('refreshed_packages', 3);
+
+        Queue::assertPushed(
+            RefreshRegistryPackages::class,
+            fn (RefreshRegistryPackages $job) => $job->registryPackageIds === [11, 12, 13]
+        );
     }
 }

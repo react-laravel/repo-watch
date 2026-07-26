@@ -6,6 +6,33 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StoreWatchedPackagesRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $packages = $this->input('packages');
+
+        if (! is_array($packages)) {
+            return;
+        }
+
+        $this->merge([
+            'packages' => array_map(function ($package) {
+                if (! is_array($package)) {
+                    return $package;
+                }
+
+                if (is_string($package['ecosystem'] ?? null)) {
+                    $package['ecosystem'] = strtolower(trim($package['ecosystem']));
+                }
+
+                if (is_string($package['package_name'] ?? null)) {
+                    $package['package_name'] = strtolower(trim($package['package_name']));
+                }
+
+                return $package;
+            }, $packages),
+        ]);
+    }
+
     public function authorize(): bool
     {
         return true;

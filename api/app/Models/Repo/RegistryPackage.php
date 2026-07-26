@@ -16,6 +16,7 @@ class RegistryPackage extends Model
         'latest_version',
         'registry_url',
         'last_checked_at',
+        'last_succeeded_at',
         'last_error',
     ];
 
@@ -23,6 +24,7 @@ class RegistryPackage extends Model
     {
         return [
             'last_checked_at' => 'datetime',
+            'last_succeeded_at' => 'datetime',
         ];
     }
 

@@ -27,6 +27,16 @@ class PackageWatchRefreshService
 
     public function refreshRepositoryPackages(string $owner, string $repo): int
     {
+        return $this->refreshRegistryPackageIds(
+            $this->registryPackageIdsForRepository($owner, $repo)
+        );
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function registryPackageIdsForRepository(string $owner, string $repo): array
+    {
         $normalizedOwner = Str::lower($owner);
         $normalizedRepo = Str::lower($repo);
 
@@ -39,9 +49,7 @@ class PackageWatchRefreshService
 
         $this->ensureRegistryPackages($packages);
 
-        return $this->refreshRegistryPackageIds(
-            $packages->pluck('registry_package_id')->filter()->unique()->values()->all()
-        );
+        return $packages->pluck('registry_package_id')->filter()->unique()->values()->all();
     }
 
     /**
@@ -179,6 +187,7 @@ class PackageWatchRefreshService
                 'latest_version' => $resolved ? $resolvedLatestVersion : $package->latest_version,
                 'registry_url' => $registry['registry_url'] ?? $package->registry_url,
                 'last_checked_at' => $resolved ? $timestamp : $package->last_checked_at,
+                'last_succeeded_at' => $resolved ? $timestamp : $package->last_succeeded_at,
                 'last_error' => $resolved ? null : 'Registry did not return a latest version.',
                 'created_at' => $package->created_at ?? $timestamp,
                 'updated_at' => $timestamp,
@@ -188,7 +197,7 @@ class PackageWatchRefreshService
         RegistryPackage::query()->upsert(
             $updates,
             ['id'],
-            ['latest_version', 'registry_url', 'last_checked_at', 'last_error', 'updated_at']
+            ['latest_version', 'registry_url', 'last_checked_at', 'last_succeeded_at', 'last_error', 'updated_at']
         );
     }
 
@@ -243,6 +252,9 @@ class PackageWatchRefreshService
                 'latest_version' => $package->getRawOriginal('latest_version'),
                 'registry_url' => $package->getRawOriginal('registry_url'),
                 'last_checked_at' => $package->getRawOriginal('last_checked_at'),
+                'last_succeeded_at' => $package->getRawOriginal('latest_version') !== null
+                    ? $package->getRawOriginal('last_checked_at')
+                    : null,
                 'last_error' => $package->getRawOriginal('last_error'),
                 'created_at' => $timestamp,
                 'updated_at' => $timestamp,

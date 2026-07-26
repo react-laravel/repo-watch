@@ -190,7 +190,9 @@ class RepositoryWatchController extends Controller
             ];
         });
 
-        RefreshRegistryPackages::dispatch($registryPackageIds);
+        collect($registryPackageIds)
+            ->chunk(100)
+            ->each(fn ($ids) => RefreshRegistryPackages::dispatch($ids->values()->all()));
 
         return $this->success(
             $createdPackages->map(fn (WatchedPackage $package) => $this->transformPackage($package))->all(),

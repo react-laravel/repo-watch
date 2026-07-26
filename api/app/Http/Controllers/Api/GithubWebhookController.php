@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\RefreshRegistryPackages;
 use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,9 +37,14 @@ class GithubWebhookController extends Controller
             return response()->json(['message' => 'Missing repository information'], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
+        $registryPackageIds = $this->refreshService->registryPackageIdsForRepository($owner, $repo);
+        collect($registryPackageIds)
+            ->chunk(100)
+            ->each(fn ($ids) => RefreshRegistryPackages::dispatch($ids->values()->all()));
+
         return response()->json([
             'message' => 'Webhook processed',
-            'refreshed_packages' => $this->refreshService->refreshRepositoryPackages($owner, $repo),
+            'refreshed_packages' => count($registryPackageIds),
         ]);
     }
 
