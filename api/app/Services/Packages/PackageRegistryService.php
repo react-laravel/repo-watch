@@ -77,19 +77,25 @@ class PackageRegistryService
             return $results;
         }
 
-        $responses = Http::pool(function (Pool $pool) use ($pending) {
-            $requests = [];
+        $responses = [];
 
-            foreach ($pending as $resultKey => $package) {
-                $requests[$resultKey] = match ($package['ecosystem']) {
-                    'npm' => $pool->as($resultKey)->timeout(10)->acceptJson()->get($this->npmUrl($package['package_name'])),
-                    'composer' => $pool->as($resultKey)->timeout(10)->acceptJson()->get($this->composerUrl($package['package_name'])),
-                    default => null,
-                };
-            }
+        // Keep one API request capable of saving a whole repository while limiting
+        // outbound registry concurrency to a predictable number of connections.
+        foreach (array_chunk($pending, 50, true) as $pendingChunk) {
+            $responses += Http::pool(function (Pool $pool) use ($pendingChunk) {
+                $requests = [];
 
-            return array_filter($requests);
-        });
+                foreach ($pendingChunk as $resultKey => $package) {
+                    $requests[$resultKey] = match ($package['ecosystem']) {
+                        'npm' => $pool->as($resultKey)->timeout(10)->acceptJson()->get($this->npmUrl($package['package_name'])),
+                        'composer' => $pool->as($resultKey)->timeout(10)->acceptJson()->get($this->composerUrl($package['package_name'])),
+                        default => null,
+                    };
+                }
+
+                return array_filter($requests);
+            });
+        }
 
         foreach ($pending as $resultKey => $package) {
             $response = $responses[$resultKey] ?? null;

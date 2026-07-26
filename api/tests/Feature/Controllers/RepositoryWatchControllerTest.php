@@ -200,6 +200,42 @@ class RepositoryWatchControllerTest extends TestCase
             ->assertJsonPath('message', 'source_url 与 source_owner/source_repo 不一致');
     }
 
+    public function test_user_can_save_more_than_fifty_watched_packages_in_one_request(): void
+    {
+        $this->withRepoWatchIdentity();
+
+        Http::fake([
+            'https://registry.npmjs.org/*' => Http::response([
+                'dist-tags' => ['latest' => '2.0.0'],
+            ], 200),
+        ]);
+
+        $packages = collect(range(1, 75))
+            ->map(fn (int $index) => [
+                'ecosystem' => 'npm',
+                'package_name' => "package-{$index}",
+                'manifest_path' => 'package.json',
+                'current_version_constraint' => '^1.0.0',
+                'normalized_current_version' => '1.0.0',
+                'current_version_source' => 'manifest',
+                'watch_level' => 'major',
+                'dependency_group' => 'dependencies',
+            ])
+            ->all();
+
+        $this->postJson('/api/repo-watch/packages', [
+            'source_url' => 'https://github.com/acme/large-repository',
+            'source_owner' => 'acme',
+            'source_repo' => 'large-repository',
+            'packages' => $packages,
+        ])->assertCreated()
+            ->assertJsonCount(75, 'data')
+            ->assertJsonPath('message', '依赖关注已保存');
+
+        $this->assertDatabaseCount('watched_packages', 75);
+        Http::assertSentCount(75);
+    }
+
     public function test_user_can_batch_delete_watched_packages(): void
     {
         $this->withRepoWatchIdentity();
