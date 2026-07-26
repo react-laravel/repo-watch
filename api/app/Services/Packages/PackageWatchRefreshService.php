@@ -20,7 +20,7 @@ class PackageWatchRefreshService
     public function refreshPackage(WatchedPackage $watchedPackage): WatchedPackage
     {
         $registryPackage = $this->registryPackageFor($watchedPackage);
-        $this->refreshRegistryPackageIds([$registryPackage->id], onlyStale: true);
+        $this->refreshRegistryPackageIds([$registryPackage->id]);
 
         return $watchedPackage->fresh('registryPackage');
     }

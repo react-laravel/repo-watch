@@ -102,6 +102,34 @@ class PackageWatchRefreshServiceTest extends TestCase
     }
 
     #[Test]
+    public function explicit_refresh_queries_registry_even_when_shared_record_is_fresh(): void
+    {
+        $package = WatchedPackage::create([
+            'user_id' => 42,
+            'source_provider' => 'github',
+            'source_owner' => 'vitejs',
+            'source_repo' => 'vite',
+            'source_url' => 'https://github.com/vitejs/vite',
+            'ecosystem' => 'npm',
+            'package_name' => 'vite',
+            'normalized_current_version' => '7.0.0',
+            'latest_version' => '7.0.1',
+            'last_checked_at' => now(),
+        ]);
+
+        Http::fake([
+            'https://registry.npmjs.org/vite' => Http::response([
+                'dist-tags' => ['latest' => '7.1.0'],
+            ], 200),
+        ]);
+
+        $result = $this->service->refreshPackage($package);
+
+        Http::assertSentCount(1);
+        $this->assertSame('7.1.0', $result->registryPackage->latest_version);
+    }
+
+    #[Test]
     public function failed_shared_registry_refresh_preserves_the_last_known_version(): void
     {
         $package = WatchedPackage::create([
