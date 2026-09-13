@@ -49,9 +49,9 @@ Or via API (authenticated session):
 1. Bulk import: `POST /api/repo-watch/repositories/bulk` with `{ "repositories": ["org/a", "org/b", "https://github.com/org/c"] }`
 2. Or single: `POST /api/repo-watch/repositories` with `{ "url": "https://github.com/org/repo" }`
 3. `POST /api/repo-watch/repositories/{id}/scan?sync=1` twice (second run with changed manifests produces changes)
-4. `GET /api/repo-watch/dependency-changes`
+4. `GET /api/repo-watch/dependency-changes` (optional filters: `repository_id`, `ecosystem=npm|composer`, `change_type=added|updated|removed`, `limit`)
 
-UI: **仓库与变更** → paste an `owner/repo` list into **批量导入仓库**.
+UI: **仓库与变更** → paste an `owner/repo` list into **批量导入仓库**, then filter **最近依赖变更** by repo / ecosystem / change type.
 
 ## Production scan wiring
 
@@ -63,7 +63,6 @@ UI: **仓库与变更** → paste an `owner/repo` list into **批量导入仓库
 ## Follow-ups (not in this slice)
 
 - Retain only the latest N snapshots per manifest to bound storage.
-- Stronger dependency-change feed filters (repo / ecosystem / change type).
 - Auto-select / suggest packages to watch from the latest snapshot.
 - Per-user or org-level GitHub App installation instead of a single PAT.
 - Deduplicate scans when many users watch the same public repository.
