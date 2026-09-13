@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, ExternalLink, Filter, GitBranch, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Activity, Bell, ExternalLink, Filter, GitBranch, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,10 @@ import {
   bulkImportWatchedRepositories,
   deleteWatchedRepository,
   listDependencyChanges,
+  listRepoWatchNotifications,
   listWatchedRepositories,
+  markAllRepoWatchNotificationsRead,
+  markRepoWatchNotificationRead,
   scanUnhealthyWatchedRepositories,
   scanWatchedRepository,
   type BulkImportRepositoryResult,
@@ -20,6 +23,8 @@ import {
   type DependencyChangeType,
   type Ecosystem,
   type RepositoryScanStatus,
+  type RepoWatchNotification,
+  type RepoWatchNotificationPolicy,
   type ScanHealthSummary,
   type SnapshotRetentionPolicy,
   type WatchedRepository,
@@ -56,6 +61,10 @@ export default function RepositoriesPanel() {
   const [repositories, setRepositories] = useState<WatchedRepository[]>([])
   const [health, setHealth] = useState<ScanHealthSummary | null>(null)
   const [retention, setRetention] = useState<SnapshotRetentionPolicy | null>(null)
+  const [notifications, setNotifications] = useState<RepoWatchNotification[]>([])
+  const [notificationPolicy, setNotificationPolicy] = useState<RepoWatchNotificationPolicy | null>(null)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [markingNotifications, setMarkingNotifications] = useState(false)
   const [changes, setChanges] = useState<DependencyChange[]>([])
   const [loading, setLoading] = useState(true)
   const [changesLoading, setChangesLoading] = useState(false)
@@ -76,6 +85,13 @@ export default function RepositoriesPanel() {
     return response.repositories
   }, [])
 
+  const loadNotifications = useCallback(async () => {
+    const response = await listRepoWatchNotifications({ limit: 20 })
+    setNotifications(response.notifications)
+    setUnreadCount(response.unread_count)
+    setNotificationPolicy(response.policy)
+  }, [])
+
   const loadChanges = useCallback(async () => {
     setChangesLoading(true)
     try {
@@ -94,14 +110,14 @@ export default function RepositoriesPanel() {
   const load = useCallback(async () => {
     try {
       await loadRepositories()
-      await loadChanges()
+      await Promise.all([loadChanges(), loadNotifications()])
     } catch (error) {
       console.error('加载仓库监控数据失败', error)
       toast.error('加载仓库列表失败')
     } finally {
       setLoading(false)
     }
-  }, [loadRepositories, loadChanges])
+  }, [loadRepositories, loadChanges, loadNotifications])
 
   useEffect(() => {
     // Initial repository/changes sync.
@@ -198,6 +214,39 @@ export default function RepositoriesPanel() {
     [load]
   )
 
+  const handleMarkNotificationRead = useCallback(async (id: number) => {
+    try {
+      await markRepoWatchNotificationRead(id)
+      setNotifications(current =>
+        current.map(item =>
+          item.id === id ? { ...item, read_at: item.read_at ?? new Date().toISOString() } : item
+        )
+      )
+      setUnreadCount(count => Math.max(0, count - 1))
+    } catch {
+      toast.error('标记已读失败')
+    }
+  }, [])
+
+  const handleMarkAllNotificationsRead = useCallback(async () => {
+    setMarkingNotifications(true)
+    try {
+      const response = await markAllRepoWatchNotificationsRead()
+      setNotifications(current =>
+        current.map(item => ({
+          ...item,
+          read_at: item.read_at ?? new Date().toISOString(),
+        }))
+      )
+      setUnreadCount(0)
+      toast.success(response.marked > 0 ? `已标记 ${response.marked} 条通知为已读` : '没有未读通知')
+    } catch {
+      toast.error('全部标为已读失败')
+    } finally {
+      setMarkingNotifications(false)
+    }
+  }, [])
+
   const hasActiveFilters =
     repoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
   const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
@@ -252,6 +301,78 @@ export default function RepositoriesPanel() {
           </CardContent>
         </Card>
       ) : null}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bell className="h-4 w-4" />
+            高信号通知
+            {unreadCount > 0 ? <Badge variant="destructive">{unreadCount} 未读</Badge> : null}
+          </CardTitle>
+          <CardDescription>
+            默认只提醒 major 升级、依赖移除
+            {notificationPolicy?.on_scan_failure ? '与扫描失败' : ''}
+            。可选 webhook：
+            {notificationPolicy?.webhook_configured ? '已配置' : '未配置（仅应用内）'}。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {unreadCount > 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              loading={markingNotifications}
+              onClick={() => void handleMarkAllNotificationsRead()}
+            >
+              全部标为已读
+            </Button>
+          ) : null}
+          {notifications.length === 0 ? (
+            <EmptyState
+              variant="compact"
+              icon={<Bell className="h-8 w-8" />}
+              title="暂无高信号通知"
+              description="出现 major 升级、依赖移除或扫描失败时会显示在这里。"
+            />
+          ) : (
+            notifications.map(notification => (
+              <div
+                key={notification.id}
+                className={cn(
+                  'rounded-lg border p-3 text-sm',
+                  notification.read_at ? 'opacity-70' : 'border-primary/30 bg-muted/30'
+                )}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{notification.title}</span>
+                      <Badge variant={notification.type === 'scan_failed' ? 'destructive' : 'secondary'}>
+                        {notification.type === 'scan_failed' ? '扫描失败' : '依赖变更'}
+                      </Badge>
+                      {!notification.read_at ? <Badge variant="outline">未读</Badge> : null}
+                    </div>
+                    <p className="text-muted-foreground text-xs">{notification.body}</p>
+                    <div className="text-muted-foreground text-xs">
+                      {formatDateTime(notification.created_at)}
+                      {notification.repository ? ` · ${notification.repository.full_name}` : null}
+                    </div>
+                  </div>
+                  {!notification.read_at ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void handleMarkNotificationRead(notification.id)}
+                    >
+                      标为已读
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">

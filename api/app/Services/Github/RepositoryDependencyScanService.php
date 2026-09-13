@@ -6,6 +6,7 @@ use App\Models\Repo\DependencyChange;
 use App\Models\Repo\DependencySnapshot;
 use App\Models\Repo\WatchedPackage;
 use App\Models\Repo\WatchedRepository;
+use App\Services\RepoWatch\HighSignalNotificationService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,7 @@ class RepositoryDependencyScanService
     public function __construct(
         private readonly GithubDependencyScannerService $scannerService,
         private readonly GithubRateLimitGuard $rateLimitGuard,
+        private readonly HighSignalNotificationService $notificationService,
     ) {}
 
     /**
@@ -147,11 +149,20 @@ class RepositoryDependencyScanService
                 ]);
             });
 
+            if ($changesDetected > 0) {
+                try {
+                    $this->notificationService->notifyForScanChanges($repository, $timestamp);
+                } catch (Throwable $notificationException) {
+                    report($notificationException);
+                }
+            }
+
             return [
                 'repository' => $repository->fresh() ?? $repository,
                 'snapshots_created' => $snapshotsCreated,
                 'changes_detected' => $changesDetected,
                 'deferred' => false,
+                'scanned_at' => $timestamp,
             ];
         } catch (Throwable $exception) {
             $repository->update([
@@ -159,6 +170,15 @@ class RepositoryDependencyScanService
                 'last_scan_error' => Str::limit($exception->getMessage(), 1000),
                 'next_scan_at' => now()->addMinutes(30),
             ]);
+
+            try {
+                $this->notificationService->notifyScanFailure(
+                    $repository->fresh() ?? $repository,
+                    $exception->getMessage(),
+                );
+            } catch (Throwable $notificationException) {
+                report($notificationException);
+            }
 
             throw $exception;
         } finally {

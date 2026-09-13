@@ -92,6 +92,32 @@ Or via API (authenticated session):
 
 UI: **仓库与变更** → **扫描健康** strip, paste import, filter **最近依赖变更**.
 
+## High-signal notifications
+
+After each successful scan that records dependency changes, Repo Watch filters for **high-signal** events and writes in-app `repo_watch_notifications` rows (SSO `user_id` scoped). Optional outbound delivery posts JSON to a webhook URL (Slack-compatible `text` field included).
+
+Default signal set (low noise at 20–30 repos):
+
+| Signal | Default | Toggle |
+| --- | --- | --- |
+| Major version bumps (`updated` + semver major) | on | `REPO_WATCH_NOTIFY_ON_MAJOR` |
+| Removals | on | `REPO_WATCH_NOTIFY_ON_REMOVED` |
+| Failed scans | on | `REPO_WATCH_NOTIFY_ON_SCAN_FAILURE` |
+| Adds / minor / patch | off | — |
+
+Enablement / destination:
+
+- `REPO_WATCH_NOTIFY_ENABLED` — master switch (default `true`; in-app records)
+- `REPO_WATCH_NOTIFY_WEBHOOK_URL` — optional outbound hook (empty = in-app only)
+
+API:
+
+- `GET /api/repo-watch/notifications`
+- `POST /api/repo-watch/notifications/{id}/read`
+- `POST /api/repo-watch/notifications/read-all`
+
+UI: **仓库与变更** → **高信号通知** strip.
+
 ## Production scan wiring
 
 - Cron: `deploy/repo-watch-api.cron` runs `schedule:run` every minute.
@@ -101,8 +127,8 @@ UI: **仓库与变更** → **扫描健康** strip, paste import, filter **最�
 
 ## Follow-ups (not in this slice)
 
-- Notify (email/webhook) when high-signal dependency changes appear.
 - Package advisories / vulnerability signals alongside version diffs.
 - Auto-select / suggest packages to watch from the latest snapshot.
 - Per-user or org-level GitHub App installation instead of a single PAT.
 - Deduplicate scans when many users watch the same public repository.
+- Richer notification channels (email via DogeOW identity) once a durable Notifiable user exists.
