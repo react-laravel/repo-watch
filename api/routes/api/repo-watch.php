@@ -2,8 +2,8 @@
 
 use App\Http\Controllers\Api\Tools\DependencyChangeController;
 use App\Http\Controllers\Api\Tools\PackageAdvisoryController;
-use App\Http\Controllers\Api\Tools\RepoWatchNotificationController;
 use App\Http\Controllers\Api\Tools\RepositoryWatchController;
+use App\Http\Controllers\Api\Tools\RepoWatchNotificationController;
 use App\Http\Controllers\Api\Tools\WatchedRepositoryController;
 use Illuminate\Support\Facades\Route;
 

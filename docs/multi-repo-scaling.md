@@ -168,9 +168,24 @@ Egress: API workers must reach GitHub, npm/Packagist, and `api.osv.dev`.
 
 Same-repo multi-user hardening (not full snapshot sharing): webhook and scheduler stagger jobs for the same `owner/repo`, and scans share a **120s** `repo-watch:scan-preview:{owner}/{repo}` cache behind a fetch lock so Contents API bursts collapse.
 
+## Stacked migration order
+
+Run `php artisan migrate` once on the tip of the stack (or after each merge — timestamps are ordered). Do not cherry-pick later migrations onto an earlier PR without the prior tables.
+
+| Migration | Introduced | Purpose |
+| --- | --- | --- |
+| `2026_03_09_000002_create_watched_packages_table` | pre-stack | Legacy package watch |
+| `2026_07_26_000001` / `000002` | pre-stack | Shared registry packages |
+| `2026_09_13_000001_create_watched_repositories_and_dependency_tracking` | #1 | Watched repos + snapshots + changes |
+| `2026_09_13_000002_create_repo_watch_notifications_table` | #5 | High-signal notifications |
+| `2026_09_13_000003_create_package_advisories_tables` | #6 | OSV advisory catalog + findings |
+| `2026_09_13_000004_create_failed_jobs_table` | #7 | Queue failure recording |
+
+Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → CI/mergeability follow-up**.
+
 ## Go-live checklist (20–30 repos)
 
-Use this path on `https://repo-watch.dogeow.com` after merging the stacked PRs (`#1`→`#6`→this).
+Use this path on `https://repo-watch.dogeow.com` after merging the stacked PRs (`#1`→`#7`→CI fix).
 
 ### 1. Infrastructure
 
