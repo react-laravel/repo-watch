@@ -15,6 +15,7 @@ Route::prefix('repo-watch')->group(function (): void {
 
     Route::get('/repositories', [WatchedRepositoryController::class, 'index']);
     Route::post('/repositories', [WatchedRepositoryController::class, 'store']);
+    Route::post('/repositories/bulk', [WatchedRepositoryController::class, 'storeBulk']);
     Route::get('/repositories/{watchedRepository}', [WatchedRepositoryController::class, 'show']);
     Route::delete('/repositories/{watchedRepository}', [WatchedRepositoryController::class, 'destroy']);
     Route::post('/repositories/{watchedRepository}/scan', [WatchedRepositoryController::class, 'scan']);
