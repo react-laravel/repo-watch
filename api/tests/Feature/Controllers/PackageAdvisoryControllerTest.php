@@ -157,4 +157,88 @@ class PackageAdvisoryControllerTest extends TestCase
             ->assertJsonPath('data.findings.0.repository.full_name', 'acme/muted')
             ->assertJsonPath('data.findings.0.repository.muted', true);
     }
+
+    public function test_user_can_filter_advisories_by_severity(): void
+    {
+        $this->withRepoWatchIdentity();
+
+        $repository = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'demo',
+            'url' => 'https://github.com/acme/demo',
+            'full_name' => 'acme/demo',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+        ]);
+
+        $critical = PackageAdvisory::query()->create([
+            'source' => PackageAdvisory::SOURCE_OSV,
+            'advisory_id' => 'GHSA-sev-crit',
+            'ecosystem' => 'npm',
+            'package_name' => 'left-pad',
+            'severity' => PackageAdvisory::SEVERITY_CRITICAL,
+            'summary' => 'Critical advisory',
+            'aliases' => [],
+            'reference_url' => 'https://github.com/advisories/GHSA-sev-crit',
+            'last_fetched_at' => now(),
+        ]);
+        $high = PackageAdvisory::query()->create([
+            'source' => PackageAdvisory::SOURCE_OSV,
+            'advisory_id' => 'GHSA-sev-high',
+            'ecosystem' => 'npm',
+            'package_name' => 'lodash',
+            'severity' => PackageAdvisory::SEVERITY_HIGH,
+            'summary' => 'High advisory',
+            'aliases' => [],
+            'reference_url' => 'https://github.com/advisories/GHSA-sev-high',
+            'last_fetched_at' => now(),
+        ]);
+
+        PackageAdvisoryFinding::query()->create([
+            'watched_repository_id' => $repository->id,
+            'package_advisory_id' => $critical->id,
+            'ecosystem' => 'npm',
+            'manifest_path' => 'package.json',
+            'package_name' => 'left-pad',
+            'installed_version' => '1.0.0',
+            'status' => PackageAdvisoryFinding::STATUS_OPEN,
+            'first_detected_at' => now()->subDay(),
+            'last_seen_at' => now(),
+        ]);
+        PackageAdvisoryFinding::query()->create([
+            'watched_repository_id' => $repository->id,
+            'package_advisory_id' => $high->id,
+            'ecosystem' => 'npm',
+            'manifest_path' => 'package.json',
+            'package_name' => 'lodash',
+            'installed_version' => '4.17.20',
+            'status' => PackageAdvisoryFinding::STATUS_OPEN,
+            'first_detected_at' => now()->subDay(),
+            'last_seen_at' => now()->subMinute(),
+        ]);
+
+        $this->getJson('/api/repo-watch/advisories')
+            ->assertOk()
+            ->assertJsonCount(2, 'data.findings');
+
+        $this->getJson('/api/repo-watch/advisories?severity=critical')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.findings')
+            ->assertJsonPath('data.findings.0.package_name', 'left-pad')
+            ->assertJsonPath('data.findings.0.advisory.severity', 'critical');
+
+        $this->getJson('/api/repo-watch/advisories?severity=high')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.findings')
+            ->assertJsonPath('data.findings.0.package_name', 'lodash')
+            ->assertJsonPath('data.findings.0.advisory.severity', 'high');
+
+        $this->getJson('/api/repo-watch/advisories?severity=moderate')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.findings');
+
+        $this->getJson('/api/repo-watch/advisories?severity=urgent')
+            ->assertStatus(422);
+    }
 }
