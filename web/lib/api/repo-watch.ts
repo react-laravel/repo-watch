@@ -89,6 +89,7 @@ export interface DependencyChange {
     owner: string
     repo: string
     url: string
+    muted?: boolean
   } | null
   ecosystem: Ecosystem
   manifest_path: string
@@ -230,6 +231,7 @@ export interface DependencyChangeFilters {
   repositoryId?: number | null
   ecosystem?: Ecosystem | 'all' | null
   changeType?: DependencyChangeType | 'all' | null
+  includeMuted?: boolean
 }
 
 export const listDependencyChanges = (filters: number | DependencyChangeFilters = 50) => {
@@ -247,6 +249,9 @@ export const listDependencyChanges = (filters: number | DependencyChangeFilters 
     }
     if (filters.changeType && filters.changeType !== 'all') {
       params.set('change_type', filters.changeType)
+    }
+    if (filters.includeMuted) {
+      params.set('include_muted', '1')
     }
   }
 
@@ -274,6 +279,7 @@ export interface DependencyChangeExport {
     repository_id?: number | null
     ecosystem?: string | null
     change_type?: string | null
+    include_muted?: boolean
   }
 }
 
@@ -294,6 +300,9 @@ export const exportDependencyChanges = (filters: DependencyChangeExportFilters =
   }
   if (filters.changeType && filters.changeType !== 'all') {
     params.set('change_type', filters.changeType)
+  }
+  if (filters.includeMuted) {
+    params.set('include_muted', '1')
   }
 
   return get<DependencyChangeExport>(`/repo-watch/dependency-changes/export?${params.toString()}`)
@@ -388,6 +397,7 @@ export interface PackageAdvisoryFinding {
     owner: string
     repo: string
     url: string
+    muted?: boolean
   } | null
   ecosystem: Ecosystem
   manifest_path: string
@@ -421,6 +431,7 @@ export interface PackageAdvisoryFilters {
   ecosystem?: Ecosystem | 'all' | null
   severity?: AdvisorySeverity | 'all' | null
   status?: AdvisoryFindingStatus | 'all' | null
+  includeMuted?: boolean
 }
 
 export const listPackageAdvisories = (filters: PackageAdvisoryFilters = {}) => {
@@ -439,6 +450,9 @@ export const listPackageAdvisories = (filters: PackageAdvisoryFilters = {}) => {
     params.set('status', filters.status)
   } else if (!filters.status) {
     params.set('status', 'open')
+  }
+  if (filters.includeMuted) {
+    params.set('include_muted', '1')
   }
 
   return get<PackageAdvisoriesResponse>(`/repo-watch/advisories?${params.toString()}`)

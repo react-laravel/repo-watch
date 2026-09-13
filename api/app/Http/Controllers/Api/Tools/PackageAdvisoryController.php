@@ -29,6 +29,7 @@ class PackageAdvisoryController extends Controller
                 PackageAdvisoryFinding::STATUS_OPEN,
                 PackageAdvisoryFinding::STATUS_RESOLVED,
             ])],
+            'include_muted' => ['sometimes', 'boolean'],
         ]);
 
         $limit = (int) ($validated['limit'] ?? 50);
@@ -36,12 +37,18 @@ class PackageAdvisoryController extends Controller
         $ecosystem = $validated['ecosystem'] ?? null;
         $severity = $validated['severity'] ?? null;
         $status = $validated['status'] ?? PackageAdvisoryFinding::STATUS_OPEN;
+        $includeMuted = filter_var($validated['include_muted'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
         $ownedRepositoryIds = WatchedRepository::query()
             ->where('user_id', $request->user()->id)
             ->when(
                 $repositoryId !== null,
                 fn ($query) => $query->where('id', $repositoryId)
+            )
+            // Explicit repository_id always wins so a muted repo can still be inspected.
+            ->when(
+                $repositoryId === null && ! $includeMuted,
+                fn ($query) => $query->whereNull('muted_at')
             )
             ->pluck('id');
 
@@ -99,6 +106,7 @@ class PackageAdvisoryController extends Controller
                 'owner' => $repo->owner,
                 'repo' => $repo->repo,
                 'url' => $repo->url,
+                'muted' => $repo->isMuted(),
             ] : null,
             'ecosystem' => $finding->ecosystem,
             'manifest_path' => $finding->manifest_path,

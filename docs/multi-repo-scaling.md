@@ -132,6 +132,17 @@ Defaults: `muted=false`, `watch_priority=normal`. List/show/bulk responses inclu
 
 UI: **关注中的仓库** → per-row priority select + **静音/恢复** toggle.
 
+## Muted-repo feed filters (变更 / 公告)
+
+By default, **依赖变更** and **安全公告** feeds (and CSV/summary export) **exclude muted repos** so a 20–30-repo fleet stays scannable. Opt in with:
+
+| Surface | Param / control |
+| --- | --- |
+| API | `include_muted=1` on `GET /dependency-changes`, `/dependency-changes/export`, `/advisories` |
+| UI | shared **显示已静音** checkbox on the changes filter bar (also drives advisories) |
+
+Nested `repository.muted` is returned on change/finding rows for badges when muted rows are included. Explicit `repository_id` always returns that repo even if muted (inspect without flipping the global toggle).
+
 ## First-run checklist (产品向导)
 
 Thin in-app progress strip on **仓库与变更** (no new API). Chains existing surfaces:
