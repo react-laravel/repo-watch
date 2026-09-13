@@ -80,6 +80,50 @@ class WatchedRepositoryControllerTest extends TestCase
         Queue::assertPushed(ScanWatchedRepository::class);
     }
 
+    public function test_user_can_bulk_import_owner_repo_list_and_urls(): void
+    {
+        $this->withRepoWatchIdentity();
+        Queue::fake();
+
+        WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'existing',
+            'url' => 'https://github.com/acme/existing',
+            'full_name' => 'acme/existing',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+        ]);
+
+        $response = $this->postJson('/api/repo-watch/repositories/bulk', [
+            'repositories' => [
+                'acme/new-one',
+                'https://github.com/acme/new-two',
+                'acme/existing',
+                'acme/new-one',
+                'not-a-repo',
+                'github.com/acme/new-three',
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.summary.created', 3)
+            ->assertJsonPath('data.summary.already_watched', 2)
+            ->assertJsonPath('data.summary.invalid', 1)
+            ->assertJsonPath('data.summary.scans_queued', 3);
+
+        $this->assertDatabaseHas('watched_repositories', [
+            'user_id' => 42,
+            'owner' => 'acme',
+            'repo' => 'new-one',
+        ]);
+        $this->assertDatabaseHas('watched_repositories', [
+            'owner' => 'acme',
+            'repo' => 'new-three',
+        ]);
+        $this->assertDatabaseCount('watched_repositories', 4);
+
+        Queue::assertPushed(ScanWatchedRepository::class, 3);
+    }
+
     public function test_sync_scan_creates_snapshots_and_detects_dependency_changes(): void
     {
         $this->withRepoWatchIdentity();
