@@ -54,4 +54,12 @@ return [
         'repo_watch_change_retention_days' => (int) env('GITHUB_REPO_WATCH_CHANGE_RETENTION_DAYS', 90),
     ],
 
+    'repo_watch' => [
+        'notify_enabled' => filter_var(env('REPO_WATCH_NOTIFY_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'notify_webhook_url' => env('REPO_WATCH_NOTIFY_WEBHOOK_URL'),
+        'notify_on_major' => filter_var(env('REPO_WATCH_NOTIFY_ON_MAJOR', true), FILTER_VALIDATE_BOOL),
+        'notify_on_removed' => filter_var(env('REPO_WATCH_NOTIFY_ON_REMOVED', true), FILTER_VALIDATE_BOOL),
+        'notify_on_scan_failure' => filter_var(env('REPO_WATCH_NOTIFY_ON_SCAN_FAILURE', true), FILTER_VALIDATE_BOOL),
+    ],
+
 ];

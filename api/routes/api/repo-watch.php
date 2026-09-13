@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Tools\DependencyChangeController;
+use App\Http\Controllers\Api\Tools\RepoWatchNotificationController;
 use App\Http\Controllers\Api\Tools\RepositoryWatchController;
 use App\Http\Controllers\Api\Tools\WatchedRepositoryController;
 use Illuminate\Support\Facades\Route;
@@ -23,4 +24,8 @@ Route::prefix('repo-watch')->group(function (): void {
     Route::get('/repositories/{watchedRepository}/changes', [WatchedRepositoryController::class, 'changes']);
 
     Route::get('/dependency-changes', [DependencyChangeController::class, 'index']);
+
+    Route::get('/notifications', [RepoWatchNotificationController::class, 'index']);
+    Route::post('/notifications/read-all', [RepoWatchNotificationController::class, 'markAllRead']);
+    Route::post('/notifications/{repoWatchNotification}/read', [RepoWatchNotificationController::class, 'markRead']);
 });
