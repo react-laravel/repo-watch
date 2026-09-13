@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ExternalLink, GitBranch, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { ExternalLink, Filter, GitBranch, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,11 +16,13 @@ import {
   scanWatchedRepository,
   type BulkImportRepositoryResult,
   type DependencyChange,
+  type DependencyChangeType,
+  type Ecosystem,
   type WatchedRepository,
 } from '@/lib/api/repo-watch'
 import { formatDateTime } from './repoWatchUtils'
 
-const CHANGE_TYPE_LABEL: Record<DependencyChange['change_type'], string> = {
+const CHANGE_TYPE_LABEL: Record<DependencyChangeType, string> = {
   added: '新增',
   removed: '移除',
   updated: '更新',
@@ -33,36 +35,71 @@ const IMPORT_STATUS_LABEL: Record<BulkImportRepositoryResult['status'], string> 
   invalid: '无效',
 }
 
+const selectClassName =
+  'border-input bg-background h-8 rounded-md border px-2 text-xs disabled:cursor-not-allowed disabled:opacity-50'
+
+type EcosystemFilter = 'all' | Ecosystem
+type ChangeTypeFilter = 'all' | DependencyChangeType
+
 export default function RepositoriesPanel() {
   const [repositories, setRepositories] = useState<WatchedRepository[]>([])
   const [changes, setChanges] = useState<DependencyChange[]>([])
   const [loading, setLoading] = useState(true)
+  const [changesLoading, setChangesLoading] = useState(false)
   const [actionId, setActionId] = useState<number | null>(null)
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
   const [importResults, setImportResults] = useState<BulkImportRepositoryResult[] | null>(null)
+  const [repoFilter, setRepoFilter] = useState<string>('all')
+  const [ecosystemFilter, setEcosystemFilter] = useState<EcosystemFilter>('all')
+  const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeFilter>('all')
+
+  const loadRepositories = useCallback(async () => {
+    const repos = await listWatchedRepositories()
+    setRepositories(repos)
+    return repos
+  }, [])
+
+  const loadChanges = useCallback(async () => {
+    setChangesLoading(true)
+    try {
+      const recentChanges = await listDependencyChanges({
+        limit: 50,
+        repositoryId: repoFilter === 'all' ? null : Number(repoFilter),
+        ecosystem: ecosystemFilter,
+        changeType: changeTypeFilter,
+      })
+      setChanges(recentChanges)
+    } finally {
+      setChangesLoading(false)
+    }
+  }, [repoFilter, ecosystemFilter, changeTypeFilter])
 
   const load = useCallback(async () => {
     try {
-      const [repos, recentChanges] = await Promise.all([
-        listWatchedRepositories(),
-        listDependencyChanges(30),
-      ])
-      setRepositories(repos)
-      setChanges(recentChanges)
+      await loadRepositories()
+      await loadChanges()
     } catch (error) {
       console.error('加载仓库监控数据失败', error)
       toast.error('加载仓库列表失败')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadRepositories, loadChanges])
 
   useEffect(() => {
     // Initial repository/changes sync.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (loading) return
+    // Keep selected repository valid after deletes.
+    if (repoFilter !== 'all' && !repositories.some(repo => String(repo.id) === repoFilter)) {
+      setRepoFilter('all')
+    }
+  }, [loading, repositories, repoFilter])
 
   const handleImport = useCallback(async () => {
     const lines = importText
@@ -127,6 +164,9 @@ export default function RepositoriesPanel() {
     },
     [load]
   )
+
+  const hasActiveFilters =
+    repoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
 
   if (loading) {
     return <div className="text-muted-foreground text-sm">正在加载仓库监控…</div>
@@ -252,18 +292,93 @@ export default function RepositoriesPanel() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">最近依赖变更</CardTitle>
-          <CardDescription>仓库清单（composer/npm）相对上次快照的新增、更新与移除。</CardDescription>
+          <CardDescription>
+            跨仓库查看清单差异。可用仓库、生态与变更类型筛选，定位 20–30 仓中的噪声。
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {changes.length === 0 ? (
-            <div className="text-muted-foreground text-sm">暂无检测到依赖变更。完成至少两次扫描后会出现差异。</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Filter className="text-muted-foreground h-3.5 w-3.5" />
+            <select
+              className={selectClassName}
+              value={repoFilter}
+              onChange={event => setRepoFilter(event.target.value)}
+              disabled={changesLoading}
+            >
+              <option value="all">全部仓库</option>
+              {repositories.map(repo => (
+                <option key={repo.id} value={String(repo.id)}>
+                  {repo.full_name}
+                </option>
+              ))}
+            </select>
+            <select
+              className={selectClassName}
+              value={ecosystemFilter}
+              onChange={event => setEcosystemFilter(event.target.value as EcosystemFilter)}
+              disabled={changesLoading}
+            >
+              <option value="all">全部生态</option>
+              <option value="npm">npm</option>
+              <option value="composer">composer</option>
+            </select>
+            <select
+              className={selectClassName}
+              value={changeTypeFilter}
+              onChange={event => setChangeTypeFilter(event.target.value as ChangeTypeFilter)}
+              disabled={changesLoading}
+            >
+              <option value="all">全部类型</option>
+              <option value="added">新增</option>
+              <option value="updated">更新</option>
+              <option value="removed">移除</option>
+            </select>
+            {hasActiveFilters ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={changesLoading}
+                onClick={() => {
+                  setRepoFilter('all')
+                  setEcosystemFilter('all')
+                  setChangeTypeFilter('all')
+                }}
+              >
+                清除筛选
+              </Button>
+            ) : null}
+          </div>
+
+          {changesLoading ? (
+            <div className="text-muted-foreground text-sm">正在加载依赖变更…</div>
+          ) : changes.length === 0 ? (
+            <EmptyState
+              variant="compact"
+              icon={<Filter className="h-8 w-8" />}
+              title={hasActiveFilters ? '没有匹配的依赖变更' : '暂无依赖变更'}
+              description={
+                hasActiveFilters
+                  ? '试试放宽仓库、生态或变更类型筛选。'
+                  : '完成至少两次仓库扫描后，清单差异会出现在这里。'
+              }
+            />
           ) : (
             changes.map(change => (
               <div key={change.id} className="rounded-lg border p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{change.package_name}</span>
                   <Badge variant="outline">{change.ecosystem}</Badge>
-                  <Badge variant="secondary">{CHANGE_TYPE_LABEL[change.change_type]}</Badge>
+                  <Badge
+                    variant={
+                      change.change_type === 'removed'
+                        ? 'destructive'
+                        : change.change_type === 'added'
+                          ? 'secondary'
+                          : 'outline'
+                    }
+                  >
+                    {CHANGE_TYPE_LABEL[change.change_type]}
+                  </Badge>
                   {change.repository ? (
                     <span className="text-muted-foreground">{change.repository.full_name}</span>
                   ) : null}
