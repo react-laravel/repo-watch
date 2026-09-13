@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('repo-watch:refresh')->hourly()->withoutOverlapping();
 Schedule::command('repo-watch:scan-repositories')->everyFifteenMinutes()->withoutOverlapping();
+Schedule::command('repo-watch:prune-snapshots')->daily()->withoutOverlapping();

@@ -10,6 +10,7 @@ use App\Models\Repo\DependencyChange;
 use App\Models\Repo\WatchedRepository;
 use App\Services\Github\GithubRepositoryWatcherService;
 use App\Services\Github\RepositoryDependencyScanService;
+use App\Services\RepoWatch\DependencySnapshotRetentionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +23,7 @@ class WatchedRepositoryController extends Controller
     public function __construct(
         private readonly GithubRepositoryWatcherService $repositoryWatcherService,
         private readonly RepositoryDependencyScanService $scanService,
+        private readonly DependencySnapshotRetentionService $retentionService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -31,9 +33,23 @@ class WatchedRepositoryController extends Controller
             ->withCount('watchedPackages')
             ->orderByDesc('updated_at')
             ->get()
-            ->map(fn (WatchedRepository $repository) => $this->transformRepository($repository));
+            ->sortBy(function (WatchedRepository $repository): int {
+                return match ($repository->scan_status) {
+                    WatchedRepository::STATUS_ERROR => 0,
+                    WatchedRepository::STATUS_SCANNING => 1,
+                    WatchedRepository::STATUS_PENDING => 2,
+                    default => 3,
+                };
+            })
+            ->values();
 
-        return $this->success($repositories);
+        return $this->success([
+            'repositories' => $repositories
+                ->map(fn (WatchedRepository $repository) => $this->transformRepository($repository))
+                ->all(),
+            'health' => $this->retentionService->buildHealthSummary($repositories),
+            'retention' => $this->retentionPolicy(),
+        ]);
     }
 
     public function store(StoreWatchedRepositoryRequest $request): JsonResponse
@@ -219,6 +235,44 @@ class WatchedRepositoryController extends Controller
         );
     }
 
+    public function scanUnhealthy(Request $request): JsonResponse
+    {
+        $userId = (int) $request->user()->id;
+        $delayMs = max(0, (int) config('services.github.repo_watch_scan_delay_ms', 750));
+
+        $repositories = WatchedRepository::query()
+            ->where('user_id', $userId)
+            ->where(function ($query): void {
+                $query->where('scan_status', WatchedRepository::STATUS_ERROR)
+                    ->orWhereNull('last_scanned_at');
+            })
+            ->orderBy('id')
+            ->get();
+
+        $queued = 0;
+        foreach ($repositories as $index => $repository) {
+            $repository->update([
+                'scan_status' => WatchedRepository::STATUS_PENDING,
+                'next_scan_at' => now(),
+            ]);
+
+            ScanWatchedRepository::dispatch($repository->id, true)
+                ->delay(now()->addMilliseconds($delayMs * $index));
+            $queued++;
+        }
+
+        $fresh = WatchedRepository::query()
+            ->where('user_id', $userId)
+            ->withCount('watchedPackages')
+            ->get();
+
+        return $this->success([
+            'queued' => $queued,
+            'health' => $this->retentionService->buildHealthSummary($fresh),
+            'retention' => $this->retentionPolicy(),
+        ], $queued > 0 ? sprintf('已排队重新扫描 %d 个仓库', $queued) : '没有需要重新扫描的仓库');
+    }
+
     public function changes(Request $request, WatchedRepository $watchedRepository): JsonResponse
     {
         if ((int) $watchedRepository->user_id !== (int) $request->user()->id) {
@@ -289,6 +343,17 @@ class WatchedRepositoryController extends Controller
             'previous_version' => $change->previous_version,
             'new_version' => $change->new_version,
             'detected_at' => $change->detected_at,
+        ];
+    }
+
+    /**
+     * @return array{snapshot_keep: int, change_retention_days: int}
+     */
+    private function retentionPolicy(): array
+    {
+        return [
+            'snapshot_keep' => max(1, (int) config('services.github.repo_watch_snapshot_keep', 10)),
+            'change_retention_days' => max(1, (int) config('services.github.repo_watch_change_retention_days', 90)),
         ];
     }
 }
