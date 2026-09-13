@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, Bell, ExternalLink, Filter, GitBranch, RefreshCw, ShieldAlert, Trash2, Upload } from 'lucide-react'
+import { Activity, Bell, Clock3, ExternalLink, Filter, GitBranch, RefreshCw, ShieldAlert, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,17 +12,21 @@ import {
   bulkImportWatchedRepositories,
   deleteWatchedRepository,
   listDependencyChanges,
+  listFleetActivityDigest,
   listPackageAdvisories,
   listRepoWatchNotifications,
   listWatchedRepositories,
   markAllRepoWatchNotificationsRead,
   markRepoWatchNotificationRead,
+  readFleetDigestLastVisit,
   scanUnhealthyWatchedRepositories,
   scanWatchedRepository,
+  writeFleetDigestLastVisit,
   type BulkImportRepositoryResult,
   type DependencyChange,
   type DependencyChangeType,
   type Ecosystem,
+  type FleetActivityDigest,
   type PackageAdvisoryFinding,
   type PackageAdvisoryPolicy,
   type RepositoryScanStatus,
@@ -82,6 +86,9 @@ export default function RepositoriesPanel() {
   const [repoFilter, setRepoFilter] = useState<string>('all')
   const [ecosystemFilter, setEcosystemFilter] = useState<EcosystemFilter>('all')
   const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeFilter>('all')
+  const [digest, setDigest] = useState<FleetActivityDigest | null>(null)
+  const [digestLoading, setDigestLoading] = useState(false)
+  const [digestCursor, setDigestCursor] = useState<string | null>(null)
 
   const loadRepositories = useCallback(async () => {
     const response = await listWatchedRepositories()
@@ -106,6 +113,18 @@ export default function RepositoriesPanel() {
 
     return repositories.some(repo => String(repo.id) === repoFilter) ? repoFilter : 'all'
   }, [repositories, repoFilter])
+
+  const loadDigest = useCallback(async () => {
+    setDigestLoading(true)
+    try {
+      const lastVisit = readFleetDigestLastVisit()
+      setDigestCursor(lastVisit)
+      const response = await listFleetActivityDigest({ since: lastVisit })
+      setDigest(response)
+    } finally {
+      setDigestLoading(false)
+    }
+  }, [])
 
   const loadAdvisories = useCallback(async () => {
     setAdvisoriesLoading(true)
@@ -141,20 +160,38 @@ export default function RepositoriesPanel() {
   const load = useCallback(async () => {
     try {
       await loadRepositories()
-      await Promise.all([loadChanges(), loadNotifications(), loadAdvisories()])
+      await Promise.all([loadChanges(), loadNotifications(), loadAdvisories(), loadDigest()])
     } catch (error) {
       console.error('加载仓库监控数据失败', error)
       toast.error('加载仓库列表失败')
     } finally {
       setLoading(false)
     }
-  }, [loadRepositories, loadChanges, loadNotifications, loadAdvisories])
+  }, [loadRepositories, loadChanges, loadNotifications, loadAdvisories, loadDigest])
 
   useEffect(() => {
     // Initial repository/changes sync.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load])
+
+  useEffect(() => {
+    const markVisited = () => {
+      writeFleetDigestLastVisit()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        markVisited()
+      }
+    }
+    window.addEventListener('pagehide', markVisited)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      markVisited()
+      window.removeEventListener('pagehide', markVisited)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
 
   const handleImport = useCallback(async () => {
     const lines = importText
@@ -270,6 +307,24 @@ export default function RepositoriesPanel() {
     }
   }, [])
 
+  const focusSection = useCallback(
+    (section: 'notifications' | 'advisories' | 'changes', repositoryId?: number) => {
+      if (repositoryId) {
+        setRepoFilter(String(repositoryId))
+      }
+      if (section === 'changes') {
+        setChangeTypeFilter('all')
+      }
+      requestAnimationFrame(() => {
+        document.getElementById(`repo-watch-${section}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      })
+    },
+    []
+  )
+
   const hasActiveFilters =
     effectiveRepoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
   const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
@@ -326,6 +381,122 @@ export default function RepositoriesPanel() {
       ) : null}
 
       <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock3 className="h-4 w-4" />
+            最近活动
+            {digest && digest.totals.dependency_changes + digest.totals.notifications + digest.totals.advisories_new > 0 ? (
+              <Badge variant="secondary">
+                {digest.totals.dependency_changes + digest.totals.notifications + digest.totals.advisories_new}
+              </Badge>
+            ) : null}
+          </CardTitle>
+          <CardDescription>
+            {digestCursor
+              ? `自上次查看（${formatDateTime(digestCursor)}）起的舰队摘要`
+              : `默认最近 ${digest?.policy.default_hours ?? 24} 小时；下次打开将使用本地 last-visit 游标`}
+            。仅查本地库，不消耗 GitHub 配额。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {digestLoading && !digest ? (
+            <div className="text-muted-foreground text-sm">正在汇总最近活动…</div>
+          ) : digest ? (
+            <>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button
+                  type="button"
+                  className="inline-flex"
+                  onClick={() => focusSection('changes')}
+                >
+                  <Badge variant="outline">依赖变更 {digest.totals.dependency_changes}</Badge>
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex"
+                  onClick={() => focusSection('notifications')}
+                >
+                  <Badge variant={digest.totals.unread_notifications > 0 ? 'destructive' : 'outline'}>
+                    通知 {digest.totals.notifications}
+                    {digest.totals.unread_notifications > 0
+                      ? ` · ${digest.totals.unread_notifications} 未读`
+                      : ''}
+                  </Badge>
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex"
+                  onClick={() => focusSection('advisories')}
+                >
+                  <Badge variant={digest.totals.advisories_new > 0 ? 'secondary' : 'outline'}>
+                    新公告 {digest.totals.advisories_new}
+                  </Badge>
+                </button>
+                <Badge variant="outline">窗口 {digest.window_hours}h</Badge>
+              </div>
+              {digest.by_repository.length === 0 ? (
+                <div className="text-muted-foreground text-sm">该时间窗内暂无仓库级活动。</div>
+              ) : (
+                <div className="space-y-2">
+                  {digest.by_repository.map(row => (
+                    <div
+                      key={row.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{row.full_name}</div>
+                        <div className="text-muted-foreground text-xs">
+                          变更 {row.dependency_changes}
+                          {row.change_types.added ? ` · +${row.change_types.added}` : ''}
+                          {row.change_types.updated ? ` · ~${row.change_types.updated}` : ''}
+                          {row.change_types.removed ? ` · -${row.change_types.removed}` : ''}
+                          {' · '}通知 {row.notifications}
+                          {' · '}公告 {row.advisories_new}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => focusSection('changes', row.id)}
+                        >
+                          变更
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => focusSection('notifications', row.id)}
+                        >
+                          通知
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => focusSection('advisories', row.id)}
+                        >
+                          公告
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {digest.repositories_capped ? (
+                    <div className="text-muted-foreground text-xs">
+                      已截断至 {digest.policy.max_repositories} 个仓库（按活动量排序）。
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-muted-foreground text-sm">暂无活动摘要。</div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card id="repo-watch-notifications">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Bell className="h-4 w-4" />
@@ -525,7 +696,7 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="repo-watch-advisories">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <ShieldAlert className="h-4 w-4" />
@@ -604,7 +775,7 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="repo-watch-changes">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">最近依赖变更</CardTitle>
           <CardDescription>
