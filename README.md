@@ -15,7 +15,9 @@
 
 ## 多仓库监控
 
-面向 20–30 个仓库的依赖快照扫描、变更检测与 GitHub 速率限制策略，见 [`docs/multi-repo-scaling.md`](docs/multi-repo-scaling.md)。
+面向 20–30 个仓库的依赖快照扫描、变更检测、通知与 OSV 公告，见 [`docs/multi-repo-scaling.md`](docs/multi-repo-scaling.md)。
+
+**上线清单（Sam）**：同一文档的 [Go-live checklist](docs/multi-repo-scaling.md#go-live-checklist-20-30-repos) — migrate → cron/worker → token → bulk import → health → notifications → advisories。部署后可跑 `php artisan repo-watch:doctor`。
 
 ## 本地开发
 
@@ -33,4 +35,6 @@ sudo scripts/migrate-production-database.sh
 sudo scripts/provision-production.sh
 ```
 
-`provision-production.sh` 会生成独立 SSO 密钥、写入中央 API 的 shared `.env`，清除其配置缓存并重启 Octane。随后推送或重跑本仓库 `main` 工作流，self-hosted runner 会先部署 API，再部署 Web，并执行健康检查与失败回滚。
+`provision-production.sh` 会生成独立 SSO 密钥、写入中央 API 的 shared `.env`，安装 nginx / supervisor（API + `repo-watch` queue worker）/ cron（`schedule:run`），清除中央配置缓存并重启 Octane。随后推送或重跑本仓库 `main` 工作流，self-hosted runner 会先部署 API，再部署 Web，并执行健康检查与失败回滚。
+
+首次部署后务必在 `/var/www/repo-watch-api/shared/.env` 填入 `GITHUB_TOKEN`（强烈建议 PAT），按需填 `GITHUB_WEBHOOK_SECRET` 与 `REPO_WATCH_NOTIFY_WEBHOOK_URL`，然后 `php artisan config:cache` 并按 go-live checklist 验收。

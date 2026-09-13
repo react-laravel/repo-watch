@@ -162,8 +162,8 @@ class HighSignalNotificationService
                     '%s@%s (%s)%s',
                     $finding->package_name,
                     $finding->installed_version,
-                    $advisory?->severity ?? 'unknown',
-                    $advisory?->advisory_id ? ' '.$advisory->advisory_id : ''
+                    $advisory !== null ? $advisory->severity : 'unknown',
+                    ($advisory !== null && $advisory->advisory_id) ? ' '.$advisory->advisory_id : ''
                 );
             })
             ->implode('；');

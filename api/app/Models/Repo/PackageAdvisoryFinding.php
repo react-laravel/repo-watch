@@ -5,7 +5,23 @@ namespace App\Models\Repo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property int $id
+ * @property int $watched_repository_id
+ * @property int $package_advisory_id
+ * @property int|null $dependency_snapshot_id
+ * @property string $ecosystem
+ * @property string $manifest_path
+ * @property string $package_name
+ * @property string $installed_version
+ * @property string $status
+ * @property Carbon|null $first_detected_at
+ * @property Carbon|null $last_seen_at
+ * @property Carbon|null $resolved_at
+ * @property-read PackageAdvisory|null $packageAdvisory
+ */
 class PackageAdvisoryFinding extends Model
 {
     use HasFactory;
@@ -45,6 +61,9 @@ class PackageAdvisoryFinding extends Model
         return $this->belongsTo(WatchedRepository::class);
     }
 
+    /**
+     * @return BelongsTo<PackageAdvisory, $this>
+     */
     public function packageAdvisory(): BelongsTo
     {
         return $this->belongsTo(PackageAdvisory::class);
