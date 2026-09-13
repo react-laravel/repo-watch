@@ -65,7 +65,17 @@ class ScanWatchedRepositoriesCommand extends Command
             });
         }
 
-        $repositories = $query->limit($limit)->get();
+        $repositories = $query->limit($limit)->get()
+            // Keep identical GitHub identities adjacent so the short shared
+            // scan-preview cache can collapse Contents API work across users.
+            ->sortBy(fn (WatchedRepository $repository): string => sprintf(
+                '%s/%s/%s|%d',
+                strtolower((string) $repository->provider),
+                strtolower((string) $repository->owner),
+                strtolower((string) $repository->repo),
+                $repository->id,
+            ))
+            ->values();
 
         if ($repositories->isEmpty()) {
             $this->info('No watched repositories need scanning.');
@@ -73,7 +83,7 @@ class ScanWatchedRepositoriesCommand extends Command
             return self::SUCCESS;
         }
 
-        foreach ($repositories->values() as $index => $repository) {
+        foreach ($repositories as $index => $repository) {
             $repository->update([
                 'scan_status' => WatchedRepository::STATUS_PENDING,
             ]);

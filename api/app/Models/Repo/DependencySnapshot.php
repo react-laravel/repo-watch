@@ -6,7 +6,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property int $id
+ * @property int $watched_repository_id
+ * @property string $ecosystem
+ * @property string $manifest_path
+ * @property array<int, array<string, mixed>>|null $packages
+ * @property Carbon|null $scanned_at
+ */
 class DependencySnapshot extends Model
 {
     use HasFactory;

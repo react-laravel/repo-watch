@@ -5,7 +5,16 @@ namespace App\Models\Repo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property int $id
+ * @property int $user_id
+ * @property string $scan_status
+ * @property Carbon|null $last_scanned_at
+ * @property Carbon|null $next_scan_at
+ * @property array<string, mixed>|null $metadata
+ */
 class WatchedRepository extends Model
 {
     use HasFactory;
