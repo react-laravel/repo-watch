@@ -4,6 +4,8 @@ namespace App\Services\RepoWatch;
 
 use App\Jobs\DeliverRepoWatchNotificationWebhook;
 use App\Models\Repo\DependencyChange;
+use App\Models\Repo\PackageAdvisory;
+use App\Models\Repo\PackageAdvisoryFinding;
 use App\Models\Repo\RepoWatchNotification;
 use App\Models\Repo\WatchedRepository;
 use App\Services\Packages\PackageRegistryService;
@@ -106,6 +108,101 @@ class HighSignalNotificationService
         $this->queueWebhook($notification);
 
         return $notification;
+    }
+
+    /**
+     * Notify when newly opened critical/high advisory findings appear.
+     *
+     * @param  Collection<int, PackageAdvisoryFinding>  $findings
+     * @return list<RepoWatchNotification>
+     */
+    public function notifyForAdvisories(WatchedRepository $repository, Collection $findings): array
+    {
+        if (! $this->enabled() || ! (bool) config('services.repo_watch.notify_on_advisory', true)) {
+            return [];
+        }
+
+        $highSignal = $findings
+            ->filter(function (PackageAdvisoryFinding $finding): bool {
+                $advisory = $finding->packageAdvisory;
+
+                return $advisory instanceof PackageAdvisory && $advisory->isHighSignal();
+            })
+            ->values();
+
+        if ($highSignal->isEmpty()) {
+            return [];
+        }
+
+        $critical = $highSignal->filter(
+            fn (PackageAdvisoryFinding $finding) => $finding->packageAdvisory?->severity === PackageAdvisory::SEVERITY_CRITICAL
+        )->count();
+        $high = $highSignal->count() - $critical;
+
+        $parts = [];
+        if ($critical > 0) {
+            $parts[] = sprintf('%d 个 critical', $critical);
+        }
+        if ($high > 0) {
+            $parts[] = sprintf('%d 个 high', $high);
+        }
+
+        $title = sprintf(
+            '%s：%s 安全公告',
+            $repository->displayName(),
+            $parts !== [] ? implode('，', $parts) : sprintf('%d 条', $highSignal->count())
+        );
+
+        $body = $highSignal
+            ->take(5)
+            ->map(function (PackageAdvisoryFinding $finding): string {
+                $advisory = $finding->packageAdvisory;
+
+                return sprintf(
+                    '%s@%s (%s)%s',
+                    $finding->package_name,
+                    $finding->installed_version,
+                    $advisory?->severity ?? 'unknown',
+                    $advisory?->advisory_id ? ' '.$advisory->advisory_id : ''
+                );
+            })
+            ->implode('；');
+
+        if ($highSignal->count() > 5) {
+            $body .= sprintf(' 等共 %d 项', $highSignal->count());
+        }
+
+        $notification = RepoWatchNotification::query()->create([
+            'user_id' => $repository->user_id,
+            'watched_repository_id' => $repository->id,
+            'type' => RepoWatchNotification::TYPE_PACKAGE_ADVISORY,
+            'severity' => RepoWatchNotification::SEVERITY_HIGH,
+            'title' => $title,
+            'body' => $body,
+            'payload' => [
+                'repository' => [
+                    'id' => $repository->id,
+                    'full_name' => $repository->displayName(),
+                    'url' => $repository->url,
+                ],
+                'findings' => $highSignal->map(fn (PackageAdvisoryFinding $finding) => [
+                    'finding_id' => $finding->id,
+                    'package_advisory_id' => $finding->package_advisory_id,
+                    'advisory_id' => $finding->packageAdvisory?->advisory_id,
+                    'ecosystem' => $finding->ecosystem,
+                    'manifest_path' => $finding->manifest_path,
+                    'package_name' => $finding->package_name,
+                    'installed_version' => $finding->installed_version,
+                    'severity' => $finding->packageAdvisory?->severity,
+                    'summary' => $finding->packageAdvisory?->summary,
+                    'reference_url' => $finding->packageAdvisory?->reference_url,
+                ])->values()->all(),
+            ],
+        ]);
+
+        $this->queueWebhook($notification);
+
+        return [$notification];
     }
 
     /**
