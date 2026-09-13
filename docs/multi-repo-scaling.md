@@ -171,7 +171,9 @@ API:
 
 Response (capped):
 
+- `fleet`: `watched` / `active` / `muted` repo counts (always; independent of activity window)
 - `totals`: dependency_changes / notifications / unread_notifications / advisories_new
+- `totals.active` / `totals.muted`: same activity counters split by repo mute state (unscoped notifications count as active)
 - `by_repository[]`: per-repo counts + `change_types{added,updated,removed}` + `muted` + `watch_priority` (repos with zero activity omitted; sorted by activity score with priority boost / muted de-prioritization)
 
 Sources:
@@ -180,7 +182,7 @@ Sources:
 - `repo_watch_notifications.created_at` (indexed)
 - `package_advisory_findings.first_detected_at` (indexed with repo)
 
-UI: **仓库与变更** → **最近活动** strip. Counts deep-link into the existing notifications / advisories / changes sections with the matching repo filter applied. Webhook digests are **not** added here — keep using per-event `REPO_WATCH_NOTIFY_WEBHOOK_URL`.
+UI: **仓库与变更** → **最近活动** strip shows fleet composition + active/muted activity split. Counts deep-link into the existing notifications / advisories / changes sections with the matching repo filter applied. Webhook digests are **not** added here — keep using per-event `REPO_WATCH_NOTIFY_WEBHOOK_URL`.
 
 ## Dependency changes export (周报 / 分享)
 
