@@ -138,6 +138,33 @@ export const listWatchedRepositories = () => get<WatchedRepository[]>('/repo-wat
 export const createWatchedRepository = (url: string, scan = true) =>
   post<WatchedRepository>('/repo-watch/repositories', { url, scan })
 
+export type BulkImportRepositoryStatus =
+  | 'created'
+  | 'already_watched'
+  | 'duplicate_in_request'
+  | 'invalid'
+
+export interface BulkImportRepositoryResult {
+  input: string
+  status: BulkImportRepositoryStatus
+  message: string
+  repository: WatchedRepository | null
+}
+
+export interface BulkImportRepositoriesResponse {
+  summary: {
+    created: number
+    already_watched: number
+    invalid: number
+    total: number
+    scans_queued: number
+  }
+  results: BulkImportRepositoryResult[]
+}
+
+export const bulkImportWatchedRepositories = (repositories: string[], scan = true) =>
+  post<BulkImportRepositoriesResponse>('/repo-watch/repositories/bulk', { repositories, scan })
+
 export const deleteWatchedRepository = (id: number) =>
   del<void>(`/repo-watch/repositories/${id}`)
 

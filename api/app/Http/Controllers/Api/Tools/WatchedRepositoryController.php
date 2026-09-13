@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Tools;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Tools\BulkStoreWatchedRepositoriesRequest;
 use App\Http\Requests\Tools\StoreWatchedRepositoryRequest;
 use App\Jobs\ScanWatchedRepository;
 use App\Models\Repo\DependencyChange;
@@ -12,6 +13,7 @@ use App\Services\Github\RepositoryDependencyScanService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
@@ -62,6 +64,98 @@ class WatchedRepositoryController extends Controller
             $shouldScan ? '仓库已加入关注，依赖快照扫描已排队' : '仓库已加入关注',
             201
         );
+    }
+
+    public function storeBulk(BulkStoreWatchedRepositoriesRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+        $shouldScan = array_key_exists('scan', $validated) ? (bool) $validated['scan'] : true;
+        $userId = (int) $request->user()->id;
+        $delayMs = max(0, (int) config('services.github.repo_watch_scan_delay_ms', 750));
+
+        $results = [];
+        $created = 0;
+        $alreadyWatched = 0;
+        $invalid = 0;
+        $scanIndex = 0;
+        $seen = [];
+
+        foreach ($validated['repositories'] as $reference) {
+            try {
+                [$owner, $repo, $url] = $this->repositoryWatcherService->parseRepositoryReference($reference);
+            } catch (RuntimeException $exception) {
+                $invalid++;
+                $results[] = [
+                    'input' => $reference,
+                    'status' => 'invalid',
+                    'message' => $exception->getMessage(),
+                    'repository' => null,
+                ];
+
+                continue;
+            }
+
+            $key = Str::lower($owner).'/'.Str::lower($repo);
+
+            if (isset($seen[$key])) {
+                $alreadyWatched++;
+                $results[] = [
+                    'input' => $reference,
+                    'status' => 'duplicate_in_request',
+                    'message' => '请求中重复的仓库引用',
+                    'repository' => null,
+                ];
+
+                continue;
+            }
+            $seen[$key] = true;
+
+            $existing = WatchedRepository::query()
+                ->where('user_id', $userId)
+                ->where('provider', 'github')
+                ->where('owner', Str::lower($owner))
+                ->where('repo', Str::lower($repo))
+                ->first();
+
+            if ($existing instanceof WatchedRepository) {
+                $alreadyWatched++;
+                $results[] = [
+                    'input' => $reference,
+                    'status' => 'already_watched',
+                    'message' => '已在关注列表中',
+                    'repository' => $this->transformRepository($existing),
+                ];
+
+                continue;
+            }
+
+            $repository = $this->scanService->ensureForUser($userId, $owner, $repo, $url);
+            $created++;
+
+            if ($shouldScan) {
+                ScanWatchedRepository::dispatch($repository->id)
+                    ->delay(now()->addMilliseconds($delayMs * $scanIndex));
+                $scanIndex++;
+            }
+
+            $results[] = [
+                'input' => $reference,
+                'status' => 'created',
+                'message' => $shouldScan ? '已加入关注并排队扫描' : '已加入关注',
+                'repository' => $this->transformRepository($repository->fresh() ?? $repository),
+            ];
+        }
+
+        return $this->success([
+            'summary' => [
+                'created' => $created,
+                'already_watched' => $alreadyWatched,
+                'invalid' => $invalid,
+                'total' => count($results),
+                'scans_queued' => $scanIndex,
+            ],
+            'results' => $results,
+        ], sprintf('批量导入完成：新增 %d，已存在 %d，无效 %d', $created, $alreadyWatched, $invalid), 201);
     }
 
     public function show(Request $request, WatchedRepository $watchedRepository): JsonResponse

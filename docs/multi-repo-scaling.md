@@ -46,13 +46,24 @@ php artisan repo-watch:scan-repositories --limit=5
 
 Or via API (authenticated session):
 
-1. `POST /api/repo-watch/repositories` with `{ "url": "https://github.com/org/repo" }`
-2. `POST /api/repo-watch/repositories/{id}/scan?sync=1` twice (second run with changed manifests produces changes)
-3. `GET /api/repo-watch/dependency-changes`
+1. Bulk import: `POST /api/repo-watch/repositories/bulk` with `{ "repositories": ["org/a", "org/b", "https://github.com/org/c"] }`
+2. Or single: `POST /api/repo-watch/repositories` with `{ "url": "https://github.com/org/repo" }`
+3. `POST /api/repo-watch/repositories/{id}/scan?sync=1` twice (second run with changed manifests produces changes)
+4. `GET /api/repo-watch/dependency-changes`
+
+UI: **仓库与变更** → paste an `owner/repo` list into **批量导入仓库**.
+
+## Production scan wiring
+
+- Cron: `deploy/repo-watch-api.cron` runs `schedule:run` every minute.
+- Schedule: `repo-watch:scan-repositories` every 15 minutes (`api/routes/console.php`).
+- Worker: `deploy/supervisor-repo-watch-api.conf` uses `queue:work --timeout=180` (aligned with `ScanWatchedRepository` job timeout).
+- Stuck scans: repositories left in `scanning` longer than `GITHUB_REPO_WATCH_SCANNING_STALE_MINUTES` (default 20) are recovered to `pending` on the next scheduler tick.
 
 ## Follow-ups (not in this slice)
 
 - Retain only the latest N snapshots per manifest to bound storage.
+- Stronger dependency-change feed filters (repo / ecosystem / change type).
 - Auto-select / suggest packages to watch from the latest snapshot.
 - Per-user or org-level GitHub App installation instead of a single PAT.
 - Deduplicate scans when many users watch the same public repository.

@@ -32,6 +32,39 @@ class GithubRepositoryWatcherService
         return [$parts[0], preg_replace('/\.git$/', '', $parts[1]) ?: $parts[1]];
     }
 
+    /**
+     * Accept either a full GitHub URL or a shorthand `owner/repo` reference.
+     *
+     * @return array{0:string,1:string,2:string} owner, repo, canonical https URL
+     */
+    public function parseRepositoryReference(string $reference): array
+    {
+        $trimmed = trim($reference);
+
+        if ($trimmed === '') {
+            throw new RuntimeException('仓库引用不能为空');
+        }
+
+        if (preg_match('#^(?:https?://)?(?:www\.)?github\.com/#i', $trimmed) === 1) {
+            if (! str_starts_with(strtolower($trimmed), 'http')) {
+                $trimmed = 'https://'.$trimmed;
+            }
+
+            [$owner, $repo] = $this->parseGithubUrl($trimmed);
+
+            return [$owner, $repo, sprintf('https://github.com/%s/%s', $owner, $repo)];
+        }
+
+        if (preg_match('#^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/?$#', $trimmed, $matches) !== 1) {
+            throw new RuntimeException('请使用 owner/repo 或 GitHub 仓库 URL');
+        }
+
+        $owner = $matches[1];
+        $repo = preg_replace('/\.git$/', '', $matches[2]) ?: $matches[2];
+
+        return [$owner, $repo, sprintf('https://github.com/%s/%s', $owner, $repo)];
+    }
+
     /** @return array<string,mixed>|null */
     public function fetchManifestFile(string $repoApi, string $path): ?array
     {

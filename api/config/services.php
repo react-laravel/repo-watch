@@ -49,6 +49,7 @@ return [
         'repo_watch_scan_delay_ms' => (int) env('GITHUB_REPO_WATCH_SCAN_DELAY_MS', 750),
         'repo_watch_rate_limit_floor' => (int) env('GITHUB_REPO_WATCH_RATE_LIMIT_FLOOR', 50),
         'repo_watch_scan_retry_seconds' => (int) env('GITHUB_REPO_WATCH_SCAN_RETRY_SECONDS', 300),
+        'repo_watch_scanning_stale_minutes' => (int) env('GITHUB_REPO_WATCH_SCANNING_STALE_MINUTES', 20),
     ],
 
 ];

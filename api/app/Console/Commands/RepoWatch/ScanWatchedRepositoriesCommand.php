@@ -35,6 +35,20 @@ class ScanWatchedRepositoriesCommand extends Command
         $force = (bool) $this->option('force');
         $delayMs = max(0, (int) config('services.github.repo_watch_scan_delay_ms', 750));
 
+        $staleMinutes = max(5, (int) config('services.github.repo_watch_scanning_stale_minutes', 20));
+        $recovered = WatchedRepository::query()
+            ->where('scan_status', WatchedRepository::STATUS_SCANNING)
+            ->where('updated_at', '<=', now()->subMinutes($staleMinutes))
+            ->update([
+                'scan_status' => WatchedRepository::STATUS_PENDING,
+                'next_scan_at' => now(),
+                'last_scan_error' => 'Recovered stale scanning state after worker timeout or crash',
+            ]);
+
+        if ($recovered > 0) {
+            $this->warn("Recovered {$recovered} repository(ies) stuck in scanning status.");
+        }
+
         $query = WatchedRepository::query()
             ->whereIn('scan_status', [
                 WatchedRepository::STATUS_IDLE,

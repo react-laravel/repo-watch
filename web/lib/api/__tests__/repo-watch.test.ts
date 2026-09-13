@@ -9,6 +9,7 @@ import {
   listWatchedRepositories,
   listDependencyChanges,
   createWatchedRepository,
+  bulkImportWatchedRepositories,
   scanWatchedRepository,
 } from '../repo-watch'
 
@@ -41,6 +42,7 @@ describe('repo-watch API functions', () => {
     expect(typeof listWatchedRepositories).toBe('function')
     expect(typeof listDependencyChanges).toBe('function')
     expect(typeof createWatchedRepository).toBe('function')
+    expect(typeof bulkImportWatchedRepositories).toBe('function')
     expect(typeof scanWatchedRepository).toBe('function')
   })
 })
