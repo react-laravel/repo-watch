@@ -141,7 +141,12 @@ class GhsaEnrichmentService
             return $advisory->refresh();
         }
 
-        $aliases = is_array($advisory->aliases) ? $advisory->aliases : [];
+        $aliases = [];
+        foreach ($advisory->aliases ?? [] as $alias) {
+            if (is_string($alias) && $alias !== '') {
+                $aliases[] = $alias;
+            }
+        }
         if (! in_array($ghsaId, $aliases, true)) {
             $aliases[] = $ghsaId;
         }
@@ -179,7 +184,7 @@ class GhsaEnrichmentService
                 ? $ghsaSeverity
                 : $advisory->severity,
             'summary' => $summary,
-            'aliases' => array_values($aliases),
+            'aliases' => $aliases,
             'reference_url' => $referenceUrl,
             'published_at' => $payload['published_at'] ?? $advisory->published_at,
             'withdrawn_at' => $payload['withdrawn_at'] ?? $advisory->withdrawn_at,
@@ -199,7 +204,7 @@ class GhsaEnrichmentService
             return strtoupper($advisory->advisory_id);
         }
 
-        foreach (is_array($advisory->aliases) ? $advisory->aliases : [] as $alias) {
+        foreach ($advisory->aliases ?? [] as $alias) {
             if (is_string($alias) && $this->isGhsaId($alias)) {
                 return strtoupper($alias);
             }

@@ -11,16 +11,19 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $source
  * @property string $advisory_id
+ * @property string|null $ghsa_id
  * @property string $ecosystem
  * @property string $package_name
  * @property string $severity
  * @property string|null $summary
+ * @property list<string>|null $aliases
+ * @property array<int, mixed>|null $affected_ranges
+ * @property string|null $fixed_version
  * @property string|null $reference_url
- * @property string|null $ghsa_id
- * @property Carbon|null $ghsa_enriched_at
  * @property Carbon|null $published_at
  * @property Carbon|null $withdrawn_at
  * @property Carbon|null $last_fetched_at
+ * @property Carbon|null $ghsa_enriched_at
  */
 class PackageAdvisory extends Model
 {
