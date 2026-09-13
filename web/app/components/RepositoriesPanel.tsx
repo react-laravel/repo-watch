@@ -118,6 +118,7 @@ export default function RepositoriesPanel() {
   const [repoFilter, setRepoFilter] = useState<string>('all')
   const [ecosystemFilter, setEcosystemFilter] = useState<EcosystemFilter>('all')
   const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeFilter>('all')
+  const [includeMuted, setIncludeMuted] = useState(false)
   const [digest, setDigest] = useState<FleetActivityDigest | null>(null)
   const [digestLoading, setDigestLoading] = useState(false)
   const [digestCursor, setDigestCursor] = useState<string | null>(null)
@@ -173,13 +174,14 @@ export default function RepositoriesPanel() {
         repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
         ecosystem: ecosystemFilter,
         status: 'open',
+        includeMuted,
       })
       setAdvisories(response.findings)
       setAdvisoryPolicy(response.policy)
     } finally {
       setAdvisoriesLoading(false)
     }
-  }, [effectiveRepoFilter, ecosystemFilter])
+  }, [effectiveRepoFilter, ecosystemFilter, includeMuted])
 
   const loadChanges = useCallback(async () => {
     setChangesLoading(true)
@@ -189,12 +191,13 @@ export default function RepositoriesPanel() {
         repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
         ecosystem: ecosystemFilter,
         changeType: changeTypeFilter,
+        includeMuted,
       })
       setChanges(recentChanges)
     } finally {
       setChangesLoading(false)
     }
-  }, [effectiveRepoFilter, ecosystemFilter, changeTypeFilter])
+  }, [effectiveRepoFilter, ecosystemFilter, changeTypeFilter, includeMuted])
 
   const load = useCallback(async () => {
     try {
@@ -421,6 +424,7 @@ export default function RepositoriesPanel() {
           repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
           ecosystem: ecosystemFilter,
           changeType: changeTypeFilter,
+          includeMuted,
           limit: 500,
         })
 
@@ -451,11 +455,14 @@ export default function RepositoriesPanel() {
         setExporting(null)
       }
     },
-    [changeTypeFilter, digest, digestCursor, ecosystemFilter, effectiveRepoFilter]
+    [changeTypeFilter, digest, digestCursor, ecosystemFilter, effectiveRepoFilter, includeMuted]
   )
 
   const hasActiveFilters =
-    effectiveRepoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
+    effectiveRepoFilter !== 'all' ||
+    ecosystemFilter !== 'all' ||
+    changeTypeFilter !== 'all' ||
+    includeMuted
   const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
   const firstRunChecklist = useMemo(
     () =>
@@ -930,7 +937,10 @@ export default function RepositoriesPanel() {
                     <Badge variant="outline">GHSA</Badge>
                   ) : null}
                   {finding.repository ? (
-                    <span className="text-muted-foreground">{finding.repository.full_name}</span>
+                    <>
+                      <span className="text-muted-foreground">{finding.repository.full_name}</span>
+                      {finding.repository.muted ? <Badge variant="outline">已静音</Badge> : null}
+                    </>
                   ) : null}
                 </div>
                 <div className="text-muted-foreground mt-1 space-y-1 text-xs">
@@ -969,7 +979,8 @@ export default function RepositoriesPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">最近依赖变更</CardTitle>
           <CardDescription>
-            跨仓库查看清单差异。可用仓库、生态与变更类型筛选；导出 CSV / 复制摘要便于周报（沿用当前筛选与 digest 游标窗口）。
+            跨仓库查看清单差异。默认隐藏已静音仓库；可用仓库、生态与变更类型筛选。导出 CSV /
+            复制摘要便于周报（沿用当前筛选与 digest 游标窗口）。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -985,6 +996,7 @@ export default function RepositoriesPanel() {
               {repositories.map(repo => (
                 <option key={repo.id} value={String(repo.id)}>
                   {repo.full_name}
+                  {repo.muted ? '（已静音）' : ''}
                 </option>
               ))}
             </select>
@@ -1009,6 +1021,16 @@ export default function RepositoriesPanel() {
               <option value="updated">更新</option>
               <option value="removed">移除</option>
             </select>
+            <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                className="border-input size-3.5 rounded"
+                checked={includeMuted}
+                disabled={changesLoading}
+                onChange={event => setIncludeMuted(event.target.checked)}
+              />
+              显示已静音
+            </label>
             {hasActiveFilters ? (
               <Button
                 variant="ghost"
@@ -1018,6 +1040,7 @@ export default function RepositoriesPanel() {
                   setRepoFilter('all')
                   setEcosystemFilter('all')
                   setChangeTypeFilter('all')
+                  setIncludeMuted(false)
                 }}
               >
                 清除筛选
@@ -1056,7 +1079,7 @@ export default function RepositoriesPanel() {
               title={hasActiveFilters ? '没有匹配的依赖变更' : '暂无依赖变更'}
               description={
                 hasActiveFilters
-                  ? '试试放宽仓库、生态或变更类型筛选。'
+                  ? '试试放宽仓库、生态、变更类型，或打开「显示已静音」。'
                   : '完成至少两次仓库扫描后，清单差异会出现在这里。'
               }
             />
@@ -1078,7 +1101,10 @@ export default function RepositoriesPanel() {
                     {CHANGE_TYPE_LABEL[change.change_type]}
                   </Badge>
                   {change.repository ? (
-                    <span className="text-muted-foreground">{change.repository.full_name}</span>
+                    <>
+                      <span className="text-muted-foreground">{change.repository.full_name}</span>
+                      {change.repository.muted ? <Badge variant="outline">已静音</Badge> : null}
+                    </>
                   ) : null}
                 </div>
                 <div className="text-muted-foreground mt-1 space-y-1 text-xs">

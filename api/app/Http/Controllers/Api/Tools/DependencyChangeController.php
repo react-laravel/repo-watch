@@ -27,6 +27,7 @@ class DependencyChangeController extends Controller
                 DependencyChange::TYPE_UPDATED,
                 DependencyChange::TYPE_REMOVED,
             ])],
+            'include_muted' => ['sometimes', 'boolean'],
         ]);
 
         $limit = (int) ($validated['limit'] ?? 50);
@@ -59,6 +60,7 @@ class DependencyChangeController extends Controller
                 DependencyChange::TYPE_UPDATED,
                 DependencyChange::TYPE_REMOVED,
             ])],
+            'include_muted' => ['sometimes', 'boolean'],
         ]);
 
         $format = $validated['format'] ?? 'csv';
@@ -100,6 +102,7 @@ class DependencyChangeController extends Controller
                 'repository_id' => isset($validated['repository_id']) ? (int) $validated['repository_id'] : null,
                 'ecosystem' => $validated['ecosystem'] ?? null,
                 'change_type' => $validated['change_type'] ?? null,
+                'include_muted' => $this->shouldIncludeMuted($validated),
             ],
         ]);
     }
@@ -113,12 +116,18 @@ class DependencyChangeController extends Controller
         $repositoryId = isset($validated['repository_id']) ? (int) $validated['repository_id'] : null;
         $ecosystem = $validated['ecosystem'] ?? null;
         $changeType = $validated['change_type'] ?? null;
+        $includeMuted = $this->shouldIncludeMuted($validated);
 
         $ownedRepositoryIds = WatchedRepository::query()
             ->where('user_id', $request->user()->id)
             ->when(
                 $repositoryId !== null,
                 fn ($query) => $query->where('id', $repositoryId)
+            )
+            // Explicit repository_id always wins so a muted repo can still be inspected.
+            ->when(
+                $repositoryId === null && ! $includeMuted,
+                fn ($query) => $query->whereNull('muted_at')
             )
             ->pluck('id');
 
@@ -135,6 +144,14 @@ class DependencyChangeController extends Controller
             )
             ->orderByDesc('detected_at')
             ->orderByDesc('id');
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function shouldIncludeMuted(array $validated): bool
+    {
+        return filter_var($validated['include_muted'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 
     /**
@@ -288,6 +305,7 @@ class DependencyChangeController extends Controller
                 'owner' => $repo->owner,
                 'repo' => $repo->repo,
                 'url' => $repo->url,
+                'muted' => $repo->isMuted(),
             ] : null,
             'ecosystem' => $change->ecosystem,
             'manifest_path' => $change->manifest_path,
