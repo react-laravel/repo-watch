@@ -3,7 +3,6 @@
 namespace Tests\Unit\Services\Github;
 
 use App\Services\Github\GithubDependencyScannerService;
-use App\Services\Github\GithubRepositoryWatcherService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\Test;
@@ -17,7 +16,7 @@ class GithubDependencyScannerServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new GithubDependencyScannerService(new GithubRepositoryWatcherService);
+        $this->service = app(GithubDependencyScannerService::class);
         Cache::flush();
     }
 

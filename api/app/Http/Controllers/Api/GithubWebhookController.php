@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\RefreshRegistryPackages;
+use App\Jobs\ScanWatchedRepository;
+use App\Models\Repo\WatchedRepository;
 use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 class GithubWebhookController extends Controller
@@ -42,9 +45,22 @@ class GithubWebhookController extends Controller
             ->chunk(100)
             ->each(fn ($ids) => RefreshRegistryPackages::dispatch($ids->values()->all()));
 
+        $normalizedOwner = Str::lower($owner);
+        $normalizedRepo = Str::lower($repo);
+        $scannedRepositories = WatchedRepository::query()
+            ->where('provider', 'github')
+            ->where('owner', $normalizedOwner)
+            ->where('repo', $normalizedRepo)
+            ->pluck('id');
+
+        foreach ($scannedRepositories as $repositoryId) {
+            ScanWatchedRepository::dispatch((int) $repositoryId, true);
+        }
+
         return response()->json([
             'message' => 'Webhook processed',
             'refreshed_packages' => count($registryPackageIds),
+            'queued_repository_scans' => $scannedRepositories->count(),
         ]);
     }
 

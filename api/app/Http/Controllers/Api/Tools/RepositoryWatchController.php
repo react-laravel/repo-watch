@@ -7,10 +7,12 @@ use App\Http\Requests\Tools\DestroyWatchedPackagesBatchRequest;
 use App\Http\Requests\Tools\PreviewDependenciesRequest;
 use App\Http\Requests\Tools\StoreWatchedPackagesRequest;
 use App\Jobs\RefreshRegistryPackages;
+use App\Jobs\ScanWatchedRepository;
 use App\Models\Repo\RegistryPackage;
 use App\Models\Repo\WatchedPackage;
 use App\Services\Github\GithubDependencyScannerService;
 use App\Services\Github\GithubRepositoryWatcherService;
+use App\Services\Github\RepositoryDependencyScanService;
 use App\Services\Packages\PackageRegistryService;
 use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Http\JsonResponse;
@@ -28,6 +30,7 @@ class RepositoryWatchController extends Controller
         private readonly GithubDependencyScannerService $scannerService,
         private readonly PackageRegistryService $registryService,
         private readonly PackageWatchRefreshService $refreshService,
+        private readonly RepositoryDependencyScanService $repositoryScanService,
     ) {}
 
     public function preview(PreviewDependenciesRequest $request): JsonResponse
@@ -51,11 +54,11 @@ class RepositoryWatchController extends Controller
             ->with('registryPackage')
             ->where('user_id', $request->user()->id)
             ->select([
-                'id', 'registry_package_id', 'user_id', 'source_provider', 'source_owner',
-                'source_repo', 'source_url', 'ecosystem', 'package_name', 'manifest_path',
-                'current_version_constraint', 'normalized_current_version', 'latest_version',
-                'watch_level', 'latest_update_type', 'registry_url', 'last_checked_at',
-                'last_error', 'metadata', 'updated_at',
+                'id', 'registry_package_id', 'watched_repository_id', 'user_id', 'source_provider',
+                'source_owner', 'source_repo', 'source_url', 'ecosystem', 'package_name',
+                'manifest_path', 'current_version_constraint', 'normalized_current_version',
+                'latest_version', 'watch_level', 'latest_update_type', 'registry_url',
+                'last_checked_at', 'last_error', 'metadata', 'updated_at',
             ])
             ->orderByDesc('updated_at')
             ->get()
@@ -96,6 +99,13 @@ class RepositoryWatchController extends Controller
             ->keyBy(fn (array $package) => "{$package['ecosystem']}:{$package['package_name']}")
             ->values();
 
+        $watchedRepository = $this->repositoryScanService->ensureForUser(
+            $userId,
+            $normalizedOwner,
+            $normalizedRepo,
+            $validated['source_url'],
+        );
+
         [$createdPackages, $registryPackageIds] = DB::transaction(function () use (
             $selectedPackages,
             $validated,
@@ -103,6 +113,7 @@ class RepositoryWatchController extends Controller
             $normalizedOwner,
             $normalizedRepo,
             $timestamp,
+            $watchedRepository,
         ) {
             RegistryPackage::query()->insertOrIgnore(
                 $selectedPackages->map(fn (array $package) => [
@@ -132,6 +143,7 @@ class RepositoryWatchController extends Controller
                 $normalizedOwner,
                 $normalizedRepo,
                 $timestamp,
+                $watchedRepository,
             ) {
                 /** @var RegistryPackage $registryPackage */
                 $registryPackage = $registryPackages->get(
@@ -140,6 +152,7 @@ class RepositoryWatchController extends Controller
 
                 return [
                     'registry_package_id' => $registryPackage->id,
+                    'watched_repository_id' => $watchedRepository->id,
                     'user_id' => $userId,
                     'source_provider' => 'github',
                     'source_owner' => $normalizedOwner,
@@ -164,7 +177,7 @@ class RepositoryWatchController extends Controller
                 $packageRows->all(),
                 ['user_id', 'source_provider', 'source_owner', 'source_repo', 'ecosystem', 'package_name'],
                 [
-                    'registry_package_id', 'source_url', 'manifest_path',
+                    'registry_package_id', 'watched_repository_id', 'source_url', 'manifest_path',
                     'current_version_constraint', 'normalized_current_version',
                     'watch_level', 'metadata', 'updated_at',
                 ]
@@ -178,6 +191,13 @@ class RepositoryWatchController extends Controller
                 ->where('source_repo', $normalizedRepo)
                 ->get()
                 ->keyBy(fn (WatchedPackage $package) => "{$package->ecosystem}:{$package->package_name}");
+
+            $watchedRepository->update([
+                'package_count' => max(
+                    (int) $watchedRepository->package_count,
+                    $savedPackages->count()
+                ),
+            ]);
 
             return [
                 $selectedPackages
@@ -193,6 +213,8 @@ class RepositoryWatchController extends Controller
         collect($registryPackageIds)
             ->chunk(100)
             ->each(fn ($ids) => RefreshRegistryPackages::dispatch($ids->values()->all()));
+
+        ScanWatchedRepository::dispatch($watchedRepository->id);
 
         return $this->success(
             $createdPackages->map(fn (WatchedPackage $package) => $this->transformPackage($package))->all(),
@@ -258,6 +280,7 @@ class RepositoryWatchController extends Controller
 
         return [
             'id' => $package->id,
+            'watched_repository_id' => $package->watched_repository_id,
             'source_provider' => $package->source_provider,
             'source_owner' => $package->source_owner,
             'source_repo' => $package->source_repo,

@@ -28,6 +28,7 @@ class GithubDependencyScannerService
             function () use ($owner, $repo, $url): array {
                 $repoApi = sprintf('https://api.github.com/repos/%s/%s', rawurlencode($owner), rawurlencode($repo));
                 $repoResponse = $this->repositoryService->githubApi()->get($repoApi);
+                app(GithubRateLimitGuard::class)->rememberFromHeaders($repoResponse->headers());
 
                 if ($repoResponse->failed()) {
                     throw new RuntimeException('读取 GitHub 仓库信息失败，请确认仓库存在且可公开访问');

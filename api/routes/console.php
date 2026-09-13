@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('repo-watch:refresh')->hourly()->withoutOverlapping();
+Schedule::command('repo-watch:scan-repositories')->everyFifteenMinutes()->withoutOverlapping();

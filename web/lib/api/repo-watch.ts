@@ -4,6 +4,8 @@ import { del, get, post } from './core'
 
 export type WatchLevel = 'major' | 'minor' | 'patch'
 export type Ecosystem = 'npm' | 'composer'
+export type DependencyChangeType = 'added' | 'removed' | 'updated'
+export type RepositoryScanStatus = 'idle' | 'pending' | 'scanning' | 'error'
 
 export interface RepoDependencyPreviewItem {
   package_name: string
@@ -34,6 +36,7 @@ export interface RepoDependencyPreview {
 
 export interface WatchedPackage {
   id: number
+  watched_repository_id?: number | null
   source_provider: string
   source_owner: string
   source_repo: string
@@ -53,6 +56,45 @@ export interface WatchedPackage {
   last_checked_at?: string | null
   last_error?: string | null
   metadata?: Record<string, unknown> | null
+}
+
+export interface WatchedRepository {
+  id: number
+  provider: string
+  owner: string
+  repo: string
+  full_name: string
+  url: string
+  description?: string | null
+  default_branch?: string | null
+  scan_status: RepositoryScanStatus
+  last_scanned_at?: string | null
+  next_scan_at?: string | null
+  last_scan_error?: string | null
+  package_count: number
+  watched_packages_count: number
+  updated_at?: string | null
+}
+
+export interface DependencyChange {
+  id: number
+  watched_repository_id: number
+  repository?: {
+    id: number
+    full_name: string
+    owner: string
+    repo: string
+    url: string
+  } | null
+  ecosystem: Ecosystem
+  manifest_path: string
+  package_name: string
+  change_type: DependencyChangeType
+  previous_constraint?: string | null
+  new_constraint?: string | null
+  previous_version?: string | null
+  new_version?: string | null
+  detected_at: string
 }
 
 export interface SaveWatchedPackageInput {
@@ -90,3 +132,25 @@ export const deleteWatchedPackage = (id: number) => del<void>(`/repo-watch/packa
 
 export const deleteWatchedPackages = (ids: number[]) =>
   del<{ deleted: number }>('/repo-watch/packages', { ids })
+
+export const listWatchedRepositories = () => get<WatchedRepository[]>('/repo-watch/repositories')
+
+export const createWatchedRepository = (url: string, scan = true) =>
+  post<WatchedRepository>('/repo-watch/repositories', { url, scan })
+
+export const deleteWatchedRepository = (id: number) =>
+  del<void>(`/repo-watch/repositories/${id}`)
+
+export const scanWatchedRepository = (id: number, sync = false) =>
+  post<{
+    repository?: WatchedRepository
+    snapshots_created?: number
+    changes_detected?: number
+    deferred?: boolean
+  } | WatchedRepository>(
+    `/repo-watch/repositories/${id}/scan${sync ? '?sync=1' : ''}`,
+    {}
+  )
+
+export const listDependencyChanges = (limit = 50) =>
+  get<DependencyChange[]>(`/repo-watch/dependency-changes?limit=${limit}`)

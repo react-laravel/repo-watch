@@ -10,8 +10,12 @@
 
 - 账号与权限由 `next.dogeow.com` 签发的一次性票据提供。
 - API 只保存只读身份快照，不连接中央账号数据库。
-- `watched_packages` 存在独立 PostgreSQL 数据库 `repo_watch`。
+- `watched_packages` / `watched_repositories` 存在独立 PostgreSQL 数据库 `repo_watch`。
 - 前端与 API 通过同域 `/api` 通信，浏览器不跨域共享 Cookie。
+
+## 多仓库监控
+
+面向 20–30 个仓库的依赖快照扫描、变更检测与 GitHub 速率限制策略，见 [`docs/multi-repo-scaling.md`](docs/multi-repo-scaling.md)。
 
 ## 本地开发
 

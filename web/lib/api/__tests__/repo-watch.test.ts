@@ -6,6 +6,10 @@ import {
   refreshWatchedPackage,
   deleteWatchedPackage,
   deleteWatchedPackages,
+  listWatchedRepositories,
+  listDependencyChanges,
+  createWatchedRepository,
+  scanWatchedRepository,
 } from '../repo-watch'
 
 describe('repo-watch API functions', () => {
@@ -31,6 +35,13 @@ describe('repo-watch API functions', () => {
 
   it('deleteWatchedPackages should be a function', () => {
     expect(typeof deleteWatchedPackages).toBe('function')
+  })
+
+  it('multi-repo helpers should be functions', () => {
+    expect(typeof listWatchedRepositories).toBe('function')
+    expect(typeof listDependencyChanges).toBe('function')
+    expect(typeof createWatchedRepository).toBe('function')
+    expect(typeof scanWatchedRepository).toBe('function')
   })
 })
 
