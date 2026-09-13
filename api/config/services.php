@@ -60,6 +60,11 @@ return [
         'notify_on_major' => filter_var(env('REPO_WATCH_NOTIFY_ON_MAJOR', true), FILTER_VALIDATE_BOOL),
         'notify_on_removed' => filter_var(env('REPO_WATCH_NOTIFY_ON_REMOVED', true), FILTER_VALIDATE_BOOL),
         'notify_on_scan_failure' => filter_var(env('REPO_WATCH_NOTIFY_ON_SCAN_FAILURE', true), FILTER_VALIDATE_BOOL),
+        'notify_on_advisory' => filter_var(env('REPO_WATCH_NOTIFY_ON_ADVISORY', true), FILTER_VALIDATE_BOOL),
+        'advisory_enabled' => filter_var(env('REPO_WATCH_ADVISORY_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'advisory_min_severity' => env('REPO_WATCH_ADVISORY_MIN_SEVERITY', 'high'),
+        'advisory_query_batch_size' => (int) env('REPO_WATCH_ADVISORY_QUERY_BATCH_SIZE', 80),
+        'osv_base_url' => env('REPO_WATCH_OSV_BASE_URL', 'https://api.osv.dev'),
     ],
 
 ];

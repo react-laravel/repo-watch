@@ -2,6 +2,7 @@
 
 namespace App\Services\Github;
 
+use App\Jobs\RefreshPackageAdvisories;
 use App\Models\Repo\DependencyChange;
 use App\Models\Repo\DependencySnapshot;
 use App\Models\Repo\WatchedPackage;
@@ -156,6 +157,9 @@ class RepositoryDependencyScanService
                     report($notificationException);
                 }
             }
+
+            // OSV advisories do not consume GitHub rate-limit budget.
+            RefreshPackageAdvisories::dispatch($repository->id);
 
             return [
                 'repository' => $repository->fresh() ?? $repository,

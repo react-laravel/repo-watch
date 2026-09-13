@@ -43,6 +43,7 @@ class RepoWatchNotificationController extends Controller
                 'on_major' => (bool) config('services.repo_watch.notify_on_major', true),
                 'on_removed' => (bool) config('services.repo_watch.notify_on_removed', true),
                 'on_scan_failure' => (bool) config('services.repo_watch.notify_on_scan_failure', true),
+                'on_advisory' => (bool) config('services.repo_watch.notify_on_advisory', true),
             ],
         ]);
     }
