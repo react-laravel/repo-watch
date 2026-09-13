@@ -132,6 +132,16 @@ Defaults: `muted=false`, `watch_priority=normal`. List/show/bulk responses inclu
 
 UI: **关注中的仓库** → per-row priority select + **静音/恢复** toggle.
 
+## First-run checklist (产品向导)
+
+Thin in-app progress strip on **仓库与变更** (no new API). Chains existing surfaces:
+
+1. **批量导入** → scroll to `#repo-watch-import` (bulk paste from #2)
+2. **完成首次扫描** → `POST …/repositories/scan-unhealthy` when `health.never_scanned > 0`
+3. **查看最近活动** → scroll to `#repo-watch-digest` and mark local `repo-watch:firstRunDigestOpened`
+
+Auto-hides when all three are done (or when `repo-watch:firstRunChecklistDismissed` is set / last-visit cursor already exists after scans). Returning fleets with last-visit skip the strip.
+
 ## Fleet activity digest (自上次查看 / 最近活动)
 
 At 20–30 repos the filtered changes feed is too long to skim. Repo Watch exposes a **local-only** fleet digest that aggregates existing tables — no GitHub PAT spend, no new product silo.

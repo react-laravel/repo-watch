@@ -54,7 +54,15 @@ import {
   type WatchPriority,
   type WatchedRepository,
 } from '@/lib/api/repo-watch'
+import {
+  FIRST_RUN_DIGEST_OPENED_KEY,
+  FIRST_RUN_DISMISSED_KEY,
+  buildFirstRunChecklist,
+  readFirstRunFlag,
+  writeFirstRunFlag,
+} from '@/lib/repo-watch-first-run'
 import { formatDateTime } from './repoWatchUtils'
+import FirstRunChecklistCard from './FirstRunChecklistCard'
 
 const CHANGE_TYPE_LABEL: Record<DependencyChangeType, string> = {
   added: '新增',
@@ -114,6 +122,12 @@ export default function RepositoriesPanel() {
   const [digestLoading, setDigestLoading] = useState(false)
   const [digestCursor, setDigestCursor] = useState<string | null>(null)
   const [exporting, setExporting] = useState<'csv' | 'summary' | null>(null)
+  const [firstRunDismissed, setFirstRunDismissed] = useState(() =>
+    readFirstRunFlag(FIRST_RUN_DISMISSED_KEY)
+  )
+  const [firstRunDigestOpened, setFirstRunDigestOpened] = useState(() =>
+    readFirstRunFlag(FIRST_RUN_DIGEST_OPENED_KEY)
+  )
 
   const loadRepositories = useCallback(async () => {
     const response = await listWatchedRepositories()
@@ -369,7 +383,7 @@ export default function RepositoriesPanel() {
   }, [])
 
   const focusSection = useCallback(
-    (section: 'notifications' | 'advisories' | 'changes', repositoryId?: number) => {
+    (section: 'notifications' | 'advisories' | 'changes' | 'import' | 'digest', repositoryId?: number) => {
       if (repositoryId) {
         setRepoFilter(String(repositoryId))
       }
@@ -385,6 +399,17 @@ export default function RepositoriesPanel() {
     },
     []
   )
+
+  const handleOpenFirstRunDigest = useCallback(() => {
+    writeFirstRunFlag(FIRST_RUN_DIGEST_OPENED_KEY, true)
+    setFirstRunDigestOpened(true)
+    focusSection('digest')
+  }, [focusSection])
+
+  const handleDismissFirstRun = useCallback(() => {
+    writeFirstRunFlag(FIRST_RUN_DISMISSED_KEY, true)
+    setFirstRunDismissed(true)
+  }, [])
 
   const handleExportChanges = useCallback(
     async (format: 'csv' | 'summary') => {
@@ -432,6 +457,25 @@ export default function RepositoriesPanel() {
   const hasActiveFilters =
     effectiveRepoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
   const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
+  const firstRunChecklist = useMemo(
+    () =>
+      buildFirstRunChecklist({
+        repositoryCount: health?.total ?? repositories.length,
+        neverScanned: health?.never_scanned ?? 0,
+        pendingOrScanning:
+          (health?.by_status.pending ?? 0) + (health?.by_status.scanning ?? 0),
+        digestOpened: firstRunDigestOpened,
+        hasDigestLastVisit: Boolean(digestCursor),
+        dismissed: firstRunDismissed,
+      }),
+    [
+      digestCursor,
+      firstRunDigestOpened,
+      firstRunDismissed,
+      health,
+      repositories.length,
+    ]
+  )
 
   if (loading) {
     return <div className="text-muted-foreground text-sm">正在加载仓库监控…</div>
@@ -439,6 +483,15 @@ export default function RepositoriesPanel() {
 
   return (
     <div className="space-y-4">
+      <FirstRunChecklistCard
+        checklist={firstRunChecklist}
+        rescanning={rescanningUnhealthy}
+        onImport={() => focusSection('import')}
+        onScan={() => void handleRescanUnhealthy()}
+        onOpenDigest={handleOpenFirstRunDigest}
+        onDismiss={handleDismissFirstRun}
+      />
+
       {health ? (
         <Card>
           <CardHeader className="pb-3">
@@ -484,7 +537,7 @@ export default function RepositoriesPanel() {
         </Card>
       ) : null}
 
-      <Card>
+      <Card id="repo-watch-digest">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Clock3 className="h-4 w-4" />
@@ -689,7 +742,7 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="repo-watch-import">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">批量导入仓库</CardTitle>
           <CardDescription>
