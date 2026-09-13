@@ -11,14 +11,19 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $source
  * @property string $advisory_id
+ * @property string|null $ghsa_id
  * @property string $ecosystem
  * @property string $package_name
  * @property string $severity
  * @property string|null $summary
+ * @property list<string>|null $aliases
+ * @property array<int, mixed>|null $affected_ranges
+ * @property string|null $fixed_version
  * @property string|null $reference_url
  * @property Carbon|null $published_at
  * @property Carbon|null $withdrawn_at
  * @property Carbon|null $last_fetched_at
+ * @property Carbon|null $ghsa_enriched_at
  */
 class PackageAdvisory extends Model
 {
@@ -39,6 +44,7 @@ class PackageAdvisory extends Model
     protected $fillable = [
         'source',
         'advisory_id',
+        'ghsa_id',
         'ecosystem',
         'package_name',
         'severity',
@@ -50,6 +56,7 @@ class PackageAdvisory extends Model
         'published_at',
         'withdrawn_at',
         'last_fetched_at',
+        'ghsa_enriched_at',
     ];
 
     protected function casts(): array
@@ -60,6 +67,7 @@ class PackageAdvisory extends Model
             'published_at' => 'datetime',
             'withdrawn_at' => 'datetime',
             'last_fetched_at' => 'datetime',
+            'ghsa_enriched_at' => 'datetime',
         ];
     }
 

@@ -16,6 +16,7 @@ class PackageAdvisoryService
 {
     public function __construct(
         private readonly HighSignalNotificationService $notificationService,
+        private readonly GhsaEnrichmentService $ghsaEnrichment,
     ) {}
 
     public function enabled(): bool
@@ -30,7 +31,8 @@ class PackageAdvisoryService
      *   advisories_upserted: int,
      *   findings_open: int,
      *   findings_resolved: int,
-     *   notifications: int
+     *   notifications: int,
+     *   ghsa_fetches: int
      * }
      */
     public function refresh(?WatchedRepository $repository = null): array
@@ -43,8 +45,11 @@ class PackageAdvisoryService
                 'findings_open' => 0,
                 'findings_resolved' => 0,
                 'notifications' => 0,
+                'ghsa_fetches' => 0,
             ];
         }
+
+        $this->ghsaEnrichment->beginRefresh();
 
         $repositories = $repository instanceof WatchedRepository
             ? collect([$repository])
@@ -96,6 +101,7 @@ class PackageAdvisoryService
             'findings_open' => $findingsOpen,
             'findings_resolved' => $findingsResolved,
             'notifications' => $notifications,
+            'ghsa_fetches' => $this->ghsaEnrichment->fetchesThisRun(),
         ];
     }
 
@@ -261,6 +267,7 @@ class PackageAdvisoryService
                     $vuln,
                     $now,
                 );
+                $advisory = $this->ghsaEnrichment->enrichIfNeeded($advisory);
                 $advisoriesUpserted++;
 
                 if ($advisory->withdrawn_at !== null) {
