@@ -33,7 +33,9 @@ class FleetActivityDigestService
      *     dependency_changes: int,
      *     change_types: array{added: int, updated: int, removed: int},
      *     notifications: int,
-     *     advisories_new: int
+     *     advisories_new: int,
+     *     muted: bool,
+     *     watch_priority: string
      *   }>,
      *   repositories_capped: bool,
      *   policy: array{default_hours: int, max_hours: int, max_repositories: int}
@@ -51,7 +53,7 @@ class FleetActivityDigestService
         $repositories = WatchedRepository::query()
             ->where('user_id', $userId)
             ->orderBy('full_name')
-            ->get(['id', 'full_name', 'url', 'owner', 'repo']);
+            ->get(['id', 'full_name', 'url', 'owner', 'repo', 'muted_at', 'watch_priority']);
 
         $repositoryIds = $repositories->pluck('id');
 
@@ -152,6 +154,10 @@ class FleetActivityDigestService
                 $notifications = $notificationsByRepo[$repository->id] ?? 0;
                 $advisories = $advisoriesByRepo[$repository->id] ?? 0;
 
+                $activityScore = $changes['total'] + $notifications + $advisories;
+                $priorityBoost = $repository->digestPriorityBoost();
+                $mutedPenalty = $repository->isMuted() ? 100 : 0;
+
                 return [
                     'id' => $repository->id,
                     'full_name' => $repository->displayName(),
@@ -164,10 +170,12 @@ class FleetActivityDigestService
                     ],
                     'notifications' => $notifications,
                     'advisories_new' => $advisories,
-                    '_score' => $changes['total'] + $notifications + $advisories,
+                    'muted' => $repository->isMuted(),
+                    'watch_priority' => $repository->watch_priority ?: WatchedRepository::PRIORITY_NORMAL,
+                    '_score' => $activityScore + $priorityBoost - $mutedPenalty,
                 ];
             })
-            ->filter(fn (array $row) => $row['_score'] > 0)
+            ->filter(fn (array $row) => ($row['dependency_changes'] + $row['notifications'] + $row['advisories_new']) > 0)
             ->sortByDesc('_score')
             ->values();
 

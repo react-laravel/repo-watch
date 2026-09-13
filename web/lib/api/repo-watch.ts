@@ -1,11 +1,12 @@
 'use client'
 
-import { del, get, post } from './core'
+import { del, get, patch, post } from './core'
 
 export type WatchLevel = 'major' | 'minor' | 'patch'
 export type Ecosystem = 'npm' | 'composer'
 export type DependencyChangeType = 'added' | 'removed' | 'updated'
 export type RepositoryScanStatus = 'idle' | 'pending' | 'scanning' | 'error'
+export type WatchPriority = 'high' | 'normal' | 'low'
 
 export interface RepoDependencyPreviewItem {
   package_name: string
@@ -73,6 +74,9 @@ export interface WatchedRepository {
   last_scan_error?: string | null
   package_count: number
   watched_packages_count: number
+  muted: boolean
+  muted_at?: string | null
+  watch_priority: WatchPriority
   updated_at?: string | null
 }
 
@@ -192,6 +196,16 @@ export const bulkImportWatchedRepositories = (repositories: string[], scan = tru
 
 export const deleteWatchedRepository = (id: number) =>
   del<void>(`/repo-watch/repositories/${id}`)
+
+export interface UpdateWatchedRepositoryPreferencesInput {
+  muted?: boolean
+  watch_priority?: WatchPriority
+}
+
+export const updateWatchedRepositoryPreferences = (
+  id: number,
+  preferences: UpdateWatchedRepositoryPreferencesInput
+) => patch<WatchedRepository>(`/repo-watch/repositories/${id}`, preferences)
 
 export const scanWatchedRepository = (id: number, sync = false) =>
   post<{
@@ -442,6 +456,8 @@ export interface FleetActivityDigestRepo {
   }
   notifications: number
   advisories_new: number
+  muted: boolean
+  watch_priority: WatchPriority
 }
 
 export interface FleetActivityDigest {

@@ -136,6 +136,46 @@ class HighSignalNotificationServiceTest extends TestCase
         $this->assertNotNull($notification->fresh()->webhook_delivered_at);
     }
 
+    public function test_muted_repository_skips_all_high_signal_notifications(): void
+    {
+        Queue::fake();
+        Config::set('services.repo_watch.notify_webhook_url', 'https://hooks.example.test/repo-watch');
+
+        $repository = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'muted',
+            'url' => 'https://github.com/acme/muted',
+            'full_name' => 'acme/muted',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+            'muted_at' => now(),
+            'watch_priority' => WatchedRepository::PRIORITY_LOW,
+        ]);
+
+        $detectedAt = now();
+
+        DependencyChange::query()->insert([
+            'watched_repository_id' => $repository->id,
+            'ecosystem' => 'npm',
+            'manifest_path' => 'package.json',
+            'package_name' => 'react',
+            'change_type' => DependencyChange::TYPE_UPDATED,
+            'previous_version' => '18.2.0',
+            'new_version' => '19.0.0',
+            'detected_at' => $detectedAt,
+            'created_at' => $detectedAt,
+            'updated_at' => $detectedAt,
+        ]);
+
+        $service = app(HighSignalNotificationService::class);
+
+        $this->assertSame([], $service->notifyForScanChanges($repository, $detectedAt));
+        $this->assertNull($service->notifyScanFailure($repository, 'GitHub API 403'));
+        $this->assertDatabaseCount('repo_watch_notifications', 0);
+        Queue::assertNothingPushed();
+    }
+
     public function test_notifications_can_be_disabled(): void
     {
         Config::set('services.repo_watch.notify_enabled', false);
