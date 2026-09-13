@@ -179,5 +179,30 @@ export const scanWatchedRepository = (id: number, sync = false) =>
     {}
   )
 
-export const listDependencyChanges = (limit = 50) =>
-  get<DependencyChange[]>(`/repo-watch/dependency-changes?limit=${limit}`)
+export interface DependencyChangeFilters {
+  limit?: number
+  repositoryId?: number | null
+  ecosystem?: Ecosystem | 'all' | null
+  changeType?: DependencyChangeType | 'all' | null
+}
+
+export const listDependencyChanges = (filters: number | DependencyChangeFilters = 50) => {
+  const params = new URLSearchParams()
+
+  if (typeof filters === 'number') {
+    params.set('limit', String(filters))
+  } else {
+    params.set('limit', String(filters.limit ?? 50))
+    if (filters.repositoryId) {
+      params.set('repository_id', String(filters.repositoryId))
+    }
+    if (filters.ecosystem && filters.ecosystem !== 'all') {
+      params.set('ecosystem', filters.ecosystem)
+    }
+    if (filters.changeType && filters.changeType !== 'all') {
+      params.set('change_type', filters.changeType)
+    }
+  }
+
+  return get<DependencyChange[]>(`/repo-watch/dependency-changes?${params.toString()}`)
+}
