@@ -51,10 +51,15 @@ class GithubWebhookController extends Controller
             ->where('provider', 'github')
             ->where('owner', $normalizedOwner)
             ->where('repo', $normalizedRepo)
+            ->orderBy('id')
             ->pluck('id');
 
-        foreach ($scannedRepositories as $repositoryId) {
-            ScanWatchedRepository::dispatch((int) $repositoryId, true);
+        $delayMs = max(0, (int) config('services.github.repo_watch_scan_delay_ms', 750));
+
+        foreach ($scannedRepositories->values() as $index => $repositoryId) {
+            // Stagger same-repo fan-out so workers reuse the shared scan-preview cache.
+            ScanWatchedRepository::dispatch((int) $repositoryId, true)
+                ->delay(now()->addMilliseconds($delayMs * $index));
         }
 
         return response()->json([

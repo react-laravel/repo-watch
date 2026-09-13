@@ -225,14 +225,32 @@ class RepositoryDependencyScanService
      */
     private function fetchPreview(WatchedRepository $repository): array
     {
-        // Bypass the short-lived preview cache so scheduled scans always observe current manifests.
-        Cache::forget(sprintf(
-            'repo-watch:preview:%s/%s',
-            strtolower($repository->owner),
-            strtolower($repository->repo)
-        ));
+        $owner = strtolower((string) $repository->owner);
+        $repo = strtolower((string) $repository->repo);
+        $scanCacheKey = "repo-watch:scan-preview:{$owner}/{$repo}";
+        $uiCacheKey = "repo-watch:preview:{$owner}/{$repo}";
 
-        return $this->scannerService->previewDependencies($repository->url);
+        $cached = Cache::get($scanCacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        // Serialize GitHub fetches for the same public repo so multi-user watches
+        // (and webhook fan-out) share one Contents API burst within a short window.
+        $lock = Cache::lock("repo-watch:github-fetch:{$owner}/{$repo}", 120);
+
+        return $lock->block(45, function () use ($scanCacheKey, $uiCacheKey, $repository): array {
+            $cached = Cache::get($scanCacheKey);
+            if (is_array($cached)) {
+                return $cached;
+            }
+
+            Cache::forget($uiCacheKey);
+            $preview = $this->scannerService->previewDependencies($repository->url);
+            Cache::put($scanCacheKey, $preview, now()->addSeconds(120));
+
+            return $preview;
+        });
     }
 
     /**

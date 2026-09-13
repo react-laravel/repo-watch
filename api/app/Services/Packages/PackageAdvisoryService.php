@@ -124,7 +124,12 @@ class PackageAdvisoryService
                 ->unique(fn (DependencySnapshot $snapshot) => $snapshot->ecosystem.'|'.$snapshot->manifest_path);
 
             foreach ($latestSnapshots as $snapshot) {
-                foreach ($snapshot->packages ?? [] as $package) {
+                $packages = $snapshot->packages;
+                if (! is_array($packages) || $packages === []) {
+                    continue;
+                }
+
+                foreach ($packages as $package) {
                     if (! is_array($package)) {
                         continue;
                     }
@@ -216,13 +221,7 @@ class PackageAdvisoryService
     }
 
     /**
-     * @param  Collection<int, array{
-     *   dependency_snapshot_id: int,
-     *   ecosystem: string,
-     *   manifest_path: string,
-     *   package_name: string,
-     *   installed_version: string
-     * }>  $repoInventory
+     * @param  iterable<int, array<string, mixed>>  $repoInventory
      * @param  array<string, list<array<string, mixed>>>  $vulnsByKey
      * @return array{
      *   advisories_upserted: int,
@@ -233,9 +232,10 @@ class PackageAdvisoryService
      */
     public function syncFindingsForRepository(
         WatchedRepository $repository,
-        Collection $repoInventory,
+        iterable $repoInventory,
         array $vulnsByKey,
     ): array {
+        $repoInventory = collect($repoInventory);
         $now = now();
         $seenFindingIds = [];
         $advisoriesUpserted = 0;

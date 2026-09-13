@@ -154,16 +154,84 @@ php artisan repo-watch:refresh-advisories --repository=123 --sync
 
 ## Production scan wiring
 
-- Cron: `deploy/repo-watch-api.cron` runs `schedule:run` every minute.
-- Schedule: `repo-watch:scan-repositories` every 15 minutes; `repo-watch:refresh-advisories` hourly; `repo-watch:prune-snapshots` daily (`api/routes/console.php`).
-- Worker: `deploy/supervisor-repo-watch-api.conf` uses `queue:work --timeout=180` (aligned with `ScanWatchedRepository` job timeout).
-- Stuck scans: repositories left in `scanning` longer than `GITHUB_REPO_WATCH_SCANNING_STALE_MINUTES` (default 20) are recovered to `pending` on the next scheduler tick.
-- Egress: API workers must reach `api.osv.dev` (same class of outbound access as npm/Packagist).
+| Piece | Path / command | Role |
+| --- | --- | --- |
+| Cron | `deploy/repo-watch-api.cron` → `/etc/cron.d/repo-watch-api` | `* * * * * schedule:run` |
+| Schedule | `api/routes/console.php` | `repo-watch:refresh` hourly; `repo-watch:scan-repositories` every 15m; `repo-watch:refresh-advisories` hourly; `repo-watch:prune-snapshots` daily — all `withoutOverlapping` |
+| Worker | `deploy/supervisor-repo-watch-api.conf` → `repo-watch-api-worker` | `queue:work redis --queue=repo-watch --timeout=180` (matches scan/advisory job timeouts) |
+| Failed jobs | `failed_jobs` table | `QUEUE_FAILED_DRIVER=database-uuids` (default) |
+| Doctor | `php artisan repo-watch:doctor` | Token / queue / schedule source / migrations sanity |
+
+Stuck scans: repositories left in `scanning` longer than `GITHUB_REPO_WATCH_SCANNING_STALE_MINUTES` (default 20) are recovered to `pending` on the next scheduler tick.
+
+Egress: API workers must reach GitHub, npm/Packagist, and `api.osv.dev`.
+
+Same-repo multi-user hardening (not full snapshot sharing): webhook and scheduler stagger jobs for the same `owner/repo`, and scans share a **120s** `repo-watch:scan-preview:{owner}/{repo}` cache behind a fetch lock so Contents API bursts collapse.
+
+## Go-live checklist (20–30 repos)
+
+Use this path on `https://repo-watch.dogeow.com` after merging the stacked PRs (`#1`→`#6`→this).
+
+### 1. Infrastructure
+
+- [ ] Central DogeOW SSO client for Repo Watch is deployed (`REPO_WATCH_SSO_*` on dogeow-api).
+- [ ] `sudo scripts/migrate-production-database.sh` (creates `repo_watch` DB if needed).
+- [ ] `sudo scripts/provision-production.sh` (nginx, supervisor, cron, shared `.env` template).
+- [ ] Confirm `/etc/cron.d/repo-watch-api` and supervisor programs `repo-watch-api` + `repo-watch-api-worker` are running.
+- [ ] Deploy via `main` workflow (or `workflow_dispatch`) so `migrate --force` runs.
+
+### 2. Secrets & env (`/var/www/repo-watch-api/shared/.env`)
+
+| Variable | Required? | Notes |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | **Yes** for 20–30 repos | PAT with public repo read; `GITHUB_PAT` also accepted |
+| `GITHUB_WEBHOOK_SECRET` | Recommended | Enables push/release → scan fan-out |
+| `REPO_WATCH_NOTIFY_WEBHOOK_URL` | Optional | Slack-compatible outbound; in-app works without it |
+| `REPO_WATCH_NOTIFY_*` / `REPO_WATCH_ADVISORY_*` | Optional | Defaults are production-safe (high-signal only) |
+| Scan/retention `GITHUB_REPO_WATCH_*` | Optional | Defaults sized for ~30 repos (batch 5, 6h interval, floor 50) |
+| `REDIS_QUEUE=repo-watch` | Yes | Must match supervisor `--queue=repo-watch` |
+| `QUEUE_FAILED_DRIVER=database-uuids` | Default | Needs `failed_jobs` migration |
+
+Then:
+
+```bash
+cd /var/www/repo-watch-api/current
+sudo -u www-data php artisan config:cache
+sudo -u www-data php artisan repo-watch:doctor
+sudo -n supervisorctl restart repo-watch-api-worker
+```
+
+### 3. Enable jobs smoke
+
+```bash
+sudo -u www-data php artisan schedule:list   # expect scan / advisories / prune / refresh
+sudo -u www-data php artisan repo-watch:scan-repositories --limit=1
+sudo -u www-data php artisan repo-watch:refresh-advisories --dry-run
+sudo -u www-data php artisan repo-watch:prune-snapshots --dry-run
+sudo -u www-data php artisan queue:failed     # should be empty / table exists
+```
+
+### 4. Product path
+
+1. Sign in via DogeOW SSO on `repo-watch.dogeow.com`.
+2. **Bulk import** 20–30 repos (UI paste or `POST /api/repo-watch/repositories/bulk`).
+3. Open **扫描健康** — expect repos moving off never-scanned; use scan-unhealthy if needed.
+4. Confirm **最近依赖变更** after a second scan with real lockfile drift (or force rescan).
+5. Confirm **高信号通知** for major/removed/scan failure (set webhook if you want outbound).
+6. Run `repo-watch:refresh-advisories --sync` once; confirm **包安全公告** (needs egress to `api.osv.dev`).
+
+### 5. Ops watch (first 24h)
+
+- GitHub rate limit remaining stays above `GITHUB_REPO_WATCH_RATE_LIMIT_FLOOR` (50).
+- Worker logs: `/var/log/supervisor/repo-watch-api-worker.log`
+- Scheduler log: `/var/log/repo-watch-api-scheduler.log`
+- `php artisan queue:failed` stays empty; investigate exhausted scan/advisory/webhook jobs.
 
 ## Follow-ups (not in this slice)
 
 - Auto-select / suggest packages to watch from the latest snapshot.
 - Per-user or org-level GitHub App installation instead of a single PAT.
-- Deduplicate scans when many users watch the same public repository.
+- Full cross-user snapshot reuse (beyond the 120s GitHub fetch cache).
 - Richer notification channels (email via DogeOW identity) once a durable Notifiable user exists.
 - Optional GHSA GraphQL enrichment (would share the GitHub rate-limit budget — keep secondary).
+- PR CI runs on GitHub-hosted runners; production deploy remains self-hosted on `main`.

@@ -5,7 +5,21 @@ namespace App\Models\Repo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property int $id
+ * @property string $source
+ * @property string $advisory_id
+ * @property string $ecosystem
+ * @property string $package_name
+ * @property string $severity
+ * @property string|null $summary
+ * @property string|null $reference_url
+ * @property Carbon|null $published_at
+ * @property Carbon|null $withdrawn_at
+ * @property Carbon|null $last_fetched_at
+ */
 class PackageAdvisory extends Model
 {
     use HasFactory;
