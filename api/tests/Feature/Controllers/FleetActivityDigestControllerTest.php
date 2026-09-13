@@ -242,6 +242,14 @@ class FleetActivityDigestControllerTest extends TestCase
 
         $this->getJson('/api/repo-watch/activity-digest?hours=24')
             ->assertOk()
+            ->assertJsonPath('data.fleet.watched', 2)
+            ->assertJsonPath('data.fleet.active', 1)
+            ->assertJsonPath('data.fleet.muted', 1)
+            ->assertJsonPath('data.totals.dependency_changes', 2)
+            ->assertJsonPath('data.totals.active.dependency_changes', 1)
+            ->assertJsonPath('data.totals.muted.dependency_changes', 1)
+            ->assertJsonPath('data.totals.active.notifications', 0)
+            ->assertJsonPath('data.totals.muted.notifications', 0)
             ->assertJsonPath('data.by_repository.0.full_name', 'acme/high')
             ->assertJsonPath('data.by_repository.0.watch_priority', 'high')
             ->assertJsonPath('data.by_repository.0.muted', false)
@@ -302,6 +310,11 @@ class FleetActivityDigestControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.source', 'default')
             ->assertJsonPath('data.policy.default_hours', 24)
-            ->assertJsonPath('data.totals.dependency_changes', 0);
+            ->assertJsonPath('data.fleet.watched', 0)
+            ->assertJsonPath('data.fleet.active', 0)
+            ->assertJsonPath('data.fleet.muted', 0)
+            ->assertJsonPath('data.totals.dependency_changes', 0)
+            ->assertJsonPath('data.totals.active.dependency_changes', 0)
+            ->assertJsonPath('data.totals.muted.dependency_changes', 0);
     }
 }
