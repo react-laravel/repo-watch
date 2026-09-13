@@ -50,6 +50,8 @@ return [
         'repo_watch_rate_limit_floor' => (int) env('GITHUB_REPO_WATCH_RATE_LIMIT_FLOOR', 50),
         'repo_watch_scan_retry_seconds' => (int) env('GITHUB_REPO_WATCH_SCAN_RETRY_SECONDS', 300),
         'repo_watch_scanning_stale_minutes' => (int) env('GITHUB_REPO_WATCH_SCANNING_STALE_MINUTES', 20),
+        'repo_watch_snapshot_keep' => (int) env('GITHUB_REPO_WATCH_SNAPSHOT_KEEP', 10),
+        'repo_watch_change_retention_days' => (int) env('GITHUB_REPO_WATCH_CHANGE_RETENTION_DAYS', 90),
     ],
 
 ];

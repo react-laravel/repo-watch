@@ -33,8 +33,11 @@ class WatchedRepositoryControllerTest extends TestCase
 
         $this->getJson('/api/repo-watch/repositories')
             ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.owner', 'acme');
+            ->assertJsonCount(1, 'data.repositories')
+            ->assertJsonPath('data.repositories.0.owner', 'acme')
+            ->assertJsonPath('data.health.total', 1)
+            ->assertJsonPath('data.health.never_scanned', 1)
+            ->assertJsonPath('data.retention.snapshot_keep', 10);
 
         $id = $create->json('data.id');
 
@@ -219,5 +222,70 @@ class WatchedRepositoryControllerTest extends TestCase
             ->assertOk()
             ->assertJsonCount(3, 'data')
             ->assertJsonPath('data.0.repository.full_name', 'acme/demo');
+    }
+
+    public function test_scan_unhealthy_queues_error_and_never_scanned_repositories(): void
+    {
+        $this->withRepoWatchIdentity();
+        Queue::fake();
+
+        $healthy = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'healthy',
+            'url' => 'https://github.com/acme/healthy',
+            'full_name' => 'acme/healthy',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+            'last_scanned_at' => now()->subHour(),
+            'next_scan_at' => now()->addHours(5),
+        ]);
+
+        $failing = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'broken',
+            'url' => 'https://github.com/acme/broken',
+            'full_name' => 'acme/broken',
+            'scan_status' => WatchedRepository::STATUS_ERROR,
+            'last_scanned_at' => now()->subDay(),
+            'last_scan_error' => 'GitHub API 403',
+            'next_scan_at' => now()->subMinute(),
+        ]);
+
+        $neverScanned = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'fresh',
+            'url' => 'https://github.com/acme/fresh',
+            'full_name' => 'acme/fresh',
+            'scan_status' => WatchedRepository::STATUS_PENDING,
+            'last_scanned_at' => null,
+            'next_scan_at' => now()->subMinute(),
+        ]);
+
+        $this->postJson('/api/repo-watch/repositories/scan-unhealthy')
+            ->assertOk()
+            ->assertJsonPath('data.queued', 2)
+            ->assertJsonPath('data.health.failing', 0);
+
+        Queue::assertPushed(ScanWatchedRepository::class, 2);
+        Queue::assertNotPushed(
+            ScanWatchedRepository::class,
+            fn (ScanWatchedRepository $job) => $job->watchedRepositoryId === $healthy->id
+        );
+        Queue::assertPushed(
+            ScanWatchedRepository::class,
+            fn (ScanWatchedRepository $job) => $job->watchedRepositoryId === $failing->id
+        );
+        Queue::assertPushed(
+            ScanWatchedRepository::class,
+            fn (ScanWatchedRepository $job) => $job->watchedRepositoryId === $neverScanned->id
+        );
+
+        $this->assertSame(WatchedRepository::STATUS_PENDING, $failing->fresh()->scan_status);
+        $this->assertSame(WatchedRepository::STATUS_IDLE, $healthy->fresh()->scan_status);
     }
 }

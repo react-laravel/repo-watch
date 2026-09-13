@@ -11,6 +11,7 @@ import {
   createWatchedRepository,
   bulkImportWatchedRepositories,
   scanWatchedRepository,
+  scanUnhealthyWatchedRepositories,
 } from '../repo-watch'
 
 describe('repo-watch API functions', () => {
@@ -44,6 +45,7 @@ describe('repo-watch API functions', () => {
     expect(typeof createWatchedRepository).toBe('function')
     expect(typeof bulkImportWatchedRepositories).toBe('function')
     expect(typeof scanWatchedRepository).toBe('function')
+    expect(typeof scanUnhealthyWatchedRepositories).toBe('function')
   })
 })
 

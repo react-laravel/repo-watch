@@ -133,7 +133,8 @@ export const deleteWatchedPackage = (id: number) => del<void>(`/repo-watch/packa
 export const deleteWatchedPackages = (ids: number[]) =>
   del<{ deleted: number }>('/repo-watch/packages', { ids })
 
-export const listWatchedRepositories = () => get<WatchedRepository[]>('/repo-watch/repositories')
+export const listWatchedRepositories = () =>
+  get<WatchedRepositoriesListResponse>('/repo-watch/repositories')
 
 export const createWatchedRepository = (url: string, scan = true) =>
   post<WatchedRepository>('/repo-watch/repositories', { url, scan })
@@ -162,6 +163,30 @@ export interface BulkImportRepositoriesResponse {
   results: BulkImportRepositoryResult[]
 }
 
+export interface ScanHealthSummary {
+  total: number
+  by_status: {
+    idle: number
+    pending: number
+    scanning: number
+    error: number
+  }
+  never_scanned: number
+  overdue: number
+  failing: number
+}
+
+export interface SnapshotRetentionPolicy {
+  snapshot_keep: number
+  change_retention_days: number
+}
+
+export interface WatchedRepositoriesListResponse {
+  repositories: WatchedRepository[]
+  health: ScanHealthSummary
+  retention: SnapshotRetentionPolicy
+}
+
 export const bulkImportWatchedRepositories = (repositories: string[], scan = true) =>
   post<BulkImportRepositoriesResponse>('/repo-watch/repositories/bulk', { repositories, scan })
 
@@ -178,6 +203,13 @@ export const scanWatchedRepository = (id: number, sync = false) =>
     `/repo-watch/repositories/${id}/scan${sync ? '?sync=1' : ''}`,
     {}
   )
+
+export const scanUnhealthyWatchedRepositories = () =>
+  post<{
+    queued: number
+    health: ScanHealthSummary
+    retention: SnapshotRetentionPolicy
+  }>('/repo-watch/repositories/scan-unhealthy', {})
 
 export interface DependencyChangeFilters {
   limit?: number

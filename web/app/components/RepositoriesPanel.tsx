@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { ExternalLink, Filter, GitBranch, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Activity, ExternalLink, Filter, GitBranch, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,11 +13,15 @@ import {
   deleteWatchedRepository,
   listDependencyChanges,
   listWatchedRepositories,
+  scanUnhealthyWatchedRepositories,
   scanWatchedRepository,
   type BulkImportRepositoryResult,
   type DependencyChange,
   type DependencyChangeType,
   type Ecosystem,
+  type RepositoryScanStatus,
+  type ScanHealthSummary,
+  type SnapshotRetentionPolicy,
   type WatchedRepository,
 } from '@/lib/api/repo-watch'
 import { formatDateTime } from './repoWatchUtils'
@@ -35,6 +39,13 @@ const IMPORT_STATUS_LABEL: Record<BulkImportRepositoryResult['status'], string> 
   invalid: '无效',
 }
 
+const SCAN_STATUS_LABEL: Record<RepositoryScanStatus, string> = {
+  idle: '正常',
+  pending: '排队中',
+  scanning: '扫描中',
+  error: '失败',
+}
+
 const selectClassName =
   'border-input bg-background h-8 rounded-md border px-2 text-xs disabled:cursor-not-allowed disabled:opacity-50'
 
@@ -43,10 +54,13 @@ type ChangeTypeFilter = 'all' | DependencyChangeType
 
 export default function RepositoriesPanel() {
   const [repositories, setRepositories] = useState<WatchedRepository[]>([])
+  const [health, setHealth] = useState<ScanHealthSummary | null>(null)
+  const [retention, setRetention] = useState<SnapshotRetentionPolicy | null>(null)
   const [changes, setChanges] = useState<DependencyChange[]>([])
   const [loading, setLoading] = useState(true)
   const [changesLoading, setChangesLoading] = useState(false)
   const [actionId, setActionId] = useState<number | null>(null)
+  const [rescanningUnhealthy, setRescanningUnhealthy] = useState(false)
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
   const [importResults, setImportResults] = useState<BulkImportRepositoryResult[] | null>(null)
@@ -55,9 +69,11 @@ export default function RepositoriesPanel() {
   const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeFilter>('all')
 
   const loadRepositories = useCallback(async () => {
-    const repos = await listWatchedRepositories()
-    setRepositories(repos)
-    return repos
+    const response = await listWatchedRepositories()
+    setRepositories(response.repositories)
+    setHealth(response.health)
+    setRetention(response.retention)
+    return response.repositories
   }, [])
 
   const loadChanges = useCallback(async () => {
@@ -149,6 +165,23 @@ export default function RepositoriesPanel() {
     [load]
   )
 
+  const handleRescanUnhealthy = useCallback(async () => {
+    setRescanningUnhealthy(true)
+    try {
+      const response = await scanUnhealthyWatchedRepositories()
+      setHealth(response.health)
+      setRetention(response.retention)
+      toast.success(
+        response.queued > 0 ? `已排队重新扫描 ${response.queued} 个仓库` : '没有需要重新扫描的仓库'
+      )
+      await load()
+    } catch {
+      toast.error('批量重新扫描失败')
+    } finally {
+      setRescanningUnhealthy(false)
+    }
+  }, [load])
+
   const handleDelete = useCallback(
     async (id: number) => {
       setActionId(id)
@@ -167,6 +200,7 @@ export default function RepositoriesPanel() {
 
   const hasActiveFilters =
     repoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
+  const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
 
   if (loading) {
     return <div className="text-muted-foreground text-sm">正在加载仓库监控…</div>
@@ -174,6 +208,51 @@ export default function RepositoriesPanel() {
 
   return (
     <div className="space-y-4">
+      {health ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4" />
+              扫描健康
+            </CardTitle>
+            <CardDescription>
+              全局扫描状态一览。失败或从未扫描的仓库可一键重新排队。
+              {retention
+                ? ` 快照保留：每清单最近 ${retention.snapshot_keep} 份；变更保留 ${retention.change_retention_days} 天。`
+                : null}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant="secondary">合计 {health.total}</Badge>
+              <Badge variant="outline">正常 {health.by_status.idle}</Badge>
+              <Badge variant="outline">排队 {health.by_status.pending}</Badge>
+              <Badge variant="outline">扫描中 {health.by_status.scanning}</Badge>
+              <Badge variant={health.failing > 0 ? 'destructive' : 'outline'}>
+                失败 {health.failing}
+              </Badge>
+              <Badge variant={health.never_scanned > 0 ? 'secondary' : 'outline'}>
+                未扫描 {health.never_scanned}
+              </Badge>
+              <Badge variant={health.overdue > 0 ? 'secondary' : 'outline'}>
+                逾期 {health.overdue}
+              </Badge>
+            </div>
+            {needsAttention ? (
+              <Button
+                variant="outline"
+                size="sm"
+                loading={rescanningUnhealthy}
+                onClick={() => void handleRescanUnhealthy()}
+              >
+                <RefreshCw className="h-4 w-4" />
+                重新扫描失败 / 未扫描
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">批量导入仓库</CardTitle>
@@ -225,7 +304,7 @@ export default function RepositoriesPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">关注中的仓库</CardTitle>
           <CardDescription>
-            多仓库依赖快照扫描与变更检测。批量导入或保存依赖后会自动排队扫描。
+            多仓库依赖快照扫描与变更检测。失败仓库排在前面；可单仓或批量重新扫描。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -249,7 +328,9 @@ export default function RepositoriesPanel() {
                       {repo.full_name}
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
-                    <Badge variant="outline">{repo.scan_status}</Badge>
+                    <Badge variant={repo.scan_status === 'error' ? 'destructive' : 'outline'}>
+                      {SCAN_STATUS_LABEL[repo.scan_status]}
+                    </Badge>
                     <Badge variant="secondary">{repo.package_count} 依赖</Badge>
                   </div>
                   {repo.description ? (
