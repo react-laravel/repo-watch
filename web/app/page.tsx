@@ -1,13 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { FolderGit2, Plus, Settings2 } from 'lucide-react'
+import { FolderGit2, GitBranch, Plus, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import RepoWatchTool from './components/RepoWatchTool'
+import RepositoriesPanel from './components/RepositoriesPanel'
+
+type ToolView = 'packages' | 'repo-settings' | 'repositories'
 
 export default function RepoWatchPage() {
   const [showAddPanel, setShowAddPanel] = useState(false)
-  const [toolView, setToolView] = useState<'packages' | 'repo-settings'>('packages')
+  const [toolView, setToolView] = useState<ToolView>('packages')
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-6xl px-4 py-6 sm:px-6">
@@ -21,25 +24,43 @@ export default function RepoWatchPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            variant={toolView === 'repositories' ? 'default' : 'outline'}
+            onClick={() => setToolView('repositories')}
+          >
+            <GitBranch className="h-4 w-4" />
+            仓库与变更
+          </Button>
+          <Button
             variant="outline"
-            onClick={() => setToolView(view => (view === 'packages' ? 'repo-settings' : 'packages'))}
+            onClick={() =>
+              setToolView(view => (view === 'packages' ? 'repo-settings' : 'packages'))
+            }
           >
             <Settings2 className="h-4 w-4" />
             {toolView === 'packages' ? '仓库设置' : '依赖列表'}
           </Button>
-          <Button onClick={() => { setToolView('packages'); setShowAddPanel(true) }}>
+          <Button
+            onClick={() => {
+              setToolView('packages')
+              setShowAddPanel(true)
+            }}
+          >
             <Plus className="h-4 w-4" />
             添加仓库
           </Button>
         </div>
       </header>
 
-      <RepoWatchTool
-        showAddPanel={showAddPanel}
-        setShowAddPanel={setShowAddPanel}
-        toolView={toolView}
-        setToolView={setToolView}
-      />
+      {toolView === 'repositories' ? (
+        <RepositoriesPanel />
+      ) : (
+        <RepoWatchTool
+          showAddPanel={showAddPanel}
+          setShowAddPanel={setShowAddPanel}
+          toolView={toolView}
+          setToolView={view => setToolView(view)}
+        />
+      )}
     </main>
   )
 }

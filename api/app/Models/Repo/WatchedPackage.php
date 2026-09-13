@@ -12,6 +12,7 @@ class WatchedPackage extends Model
 
     protected $fillable = [
         'registry_package_id',
+        'watched_repository_id',
         'user_id',
         'source_provider',
         'source_owner',
@@ -37,6 +38,7 @@ class WatchedPackage extends Model
             'last_checked_at' => 'datetime',
             'metadata' => 'array',
             'registry_package_id' => 'integer',
+            'watched_repository_id' => 'integer',
             'user_id' => 'integer',
         ];
     }
@@ -44,5 +46,10 @@ class WatchedPackage extends Model
     public function registryPackage(): BelongsTo
     {
         return $this->belongsTo(RegistryPackage::class);
+    }
+
+    public function watchedRepository(): BelongsTo
+    {
+        return $this->belongsTo(WatchedRepository::class);
     }
 }

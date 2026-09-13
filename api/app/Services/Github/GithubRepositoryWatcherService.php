@@ -10,6 +10,10 @@ use Throwable;
 
 class GithubRepositoryWatcherService
 {
+    public function __construct(
+        private readonly GithubRateLimitGuard $rateLimitGuard,
+    ) {}
+
     /** @return array{0:string,1:string} */
     public function parseGithubUrl(string $url): array
     {
@@ -33,6 +37,7 @@ class GithubRepositoryWatcherService
     {
         try {
             $response = $this->githubApi()->get($repoApi.'/contents/'.$path);
+            $this->rateLimitGuard->rememberFromHeaders($response->headers());
         } catch (Throwable) {
             return null;
         }

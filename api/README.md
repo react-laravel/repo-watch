@@ -8,6 +8,7 @@ Independent Laravel API for monitoring npm and Composer dependencies from GitHub
 - Central DogeOW accounts are received through a short-lived SSO ticket and kept only as an encrypted session identity snapshot.
 - No SQL connection or foreign key points to the central account database.
 - GitHub push/release webhooks and an hourly scheduler refresh package versions.
+- Every 15 minutes, `repo-watch:scan-repositories` enqueues rate-limit-aware dependency snapshot scans for watched repositories (see `../docs/multi-repo-scaling.md`).
 
 ## Local verification
 

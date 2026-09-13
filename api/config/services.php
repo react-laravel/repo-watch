@@ -44,6 +44,11 @@ return [
         'token' => env('GITHUB_TOKEN', env('GITHUB_PAT')),
         'webhook_secret' => env('GITHUB_WEBHOOK_SECRET'),
         'repo_watch_refresh_hours' => (int) env('GITHUB_REPO_WATCH_REFRESH_HOURS', 6),
+        'repo_watch_scan_interval_hours' => (int) env('GITHUB_REPO_WATCH_SCAN_INTERVAL_HOURS', 6),
+        'repo_watch_scan_batch_size' => (int) env('GITHUB_REPO_WATCH_SCAN_BATCH_SIZE', 5),
+        'repo_watch_scan_delay_ms' => (int) env('GITHUB_REPO_WATCH_SCAN_DELAY_MS', 750),
+        'repo_watch_rate_limit_floor' => (int) env('GITHUB_REPO_WATCH_RATE_LIMIT_FLOOR', 50),
+        'repo_watch_scan_retry_seconds' => (int) env('GITHUB_REPO_WATCH_SCAN_RETRY_SECONDS', 300),
     ],
 
 ];

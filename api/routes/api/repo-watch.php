@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Controllers\Api\Tools\DependencyChangeController;
 use App\Http\Controllers\Api\Tools\RepositoryWatchController;
+use App\Http\Controllers\Api\Tools\WatchedRepositoryController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('repo-watch')->group(function (): void {
@@ -10,4 +12,13 @@ Route::prefix('repo-watch')->group(function (): void {
     Route::delete('/packages', [RepositoryWatchController::class, 'destroyBatch']);
     Route::post('/packages/{watchedPackage}/refresh', [RepositoryWatchController::class, 'refresh']);
     Route::delete('/packages/{watchedPackage}', [RepositoryWatchController::class, 'destroy']);
+
+    Route::get('/repositories', [WatchedRepositoryController::class, 'index']);
+    Route::post('/repositories', [WatchedRepositoryController::class, 'store']);
+    Route::get('/repositories/{watchedRepository}', [WatchedRepositoryController::class, 'show']);
+    Route::delete('/repositories/{watchedRepository}', [WatchedRepositoryController::class, 'destroy']);
+    Route::post('/repositories/{watchedRepository}/scan', [WatchedRepositoryController::class, 'scan']);
+    Route::get('/repositories/{watchedRepository}/changes', [WatchedRepositoryController::class, 'changes']);
+
+    Route::get('/dependency-changes', [DependencyChangeController::class, 'index']);
 });
