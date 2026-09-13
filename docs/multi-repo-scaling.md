@@ -148,6 +148,17 @@ Sources:
 
 UI: **仓库与变更** → **最近活动** strip. Counts deep-link into the existing notifications / advisories / changes sections with the matching repo filter applied. Webhook digests are **not** added here — keep using per-event `REPO_WATCH_NOTIFY_WEBHOOK_URL`.
 
+## Dependency changes export (周报 / 分享)
+
+For weekly review across 20–30 repos, export the same filtered change set the UI shows:
+
+- `GET /api/repo-watch/dependency-changes/export?format=csv|summary`
+- Optional: `since` / `hours` (same clamp as digest), `repository_id`, `ecosystem`, `change_type`, `limit` (max 500)
+- Local DB only — no GitHub PAT
+- CSV for spreadsheets; `summary` plain text for Slack/clipboard
+
+UI: **仓库与变更** → **最近依赖变更** → **导出 CSV** / **复制摘要** (uses active filters + last-visit cursor when present).
+
 ## Package advisories (OSV + optional GHSA)
 
 Repo Watch queries **[OSV](https://osv.dev)** (`https://api.osv.dev`) against **lock-sourced** versions from the latest dependency snapshot per manifest. This path does **not** use the GitHub API budget (important at 20–30 repos).
@@ -235,7 +246,7 @@ Run `php artisan migrate` once on the tip of the stack (or after each merge — 
 | `2026_09_13_000005_add_ghsa_enrichment_to_package_advisories` | #9 | Optional GHSA id + enriched_at |
 | `2026_09_13_000006_add_first_detected_index_to_package_advisory_findings` | #10 | Digest-friendly first_detected index |
 
-Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → #8 → #9 → this (fleet activity digest)**.
+Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → #8 → #9 → #10 → this (dependency-changes export)**.
 
 ## Go-live checklist (20–30 repos)
 

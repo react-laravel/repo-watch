@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, Bell, Clock3, ExternalLink, Filter, GitBranch, RefreshCw, ShieldAlert, Trash2, Upload } from 'lucide-react'
+import { Activity, Bell, Clock3, Copy, Download, ExternalLink, Filter, GitBranch, RefreshCw, ShieldAlert, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,8 @@ import {
   bulkImportWatchedRepositories,
   deleteWatchedRepository,
   listDependencyChanges,
+  exportDependencyChanges,
+  downloadTextFile,
   listFleetActivityDigest,
   listPackageAdvisories,
   listRepoWatchNotifications,
@@ -89,6 +91,7 @@ export default function RepositoriesPanel() {
   const [digest, setDigest] = useState<FleetActivityDigest | null>(null)
   const [digestLoading, setDigestLoading] = useState(false)
   const [digestCursor, setDigestCursor] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<'csv' | 'summary' | null>(null)
 
   const loadRepositories = useCallback(async () => {
     const response = await listWatchedRepositories()
@@ -323,6 +326,49 @@ export default function RepositoriesPanel() {
       })
     },
     []
+  )
+
+  const handleExportChanges = useCallback(
+    async (format: 'csv' | 'summary') => {
+      setExporting(format)
+      try {
+        const payload = await exportDependencyChanges({
+          format,
+          since: digestCursor ?? digest?.since ?? null,
+          repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
+          ecosystem: ecosystemFilter,
+          changeType: changeTypeFilter,
+          limit: 500,
+        })
+
+        if (format === 'csv') {
+          downloadTextFile(payload.filename, payload.content, 'text/csv;charset=utf-8')
+          toast.success(
+            payload.truncated
+              ? `已导出 ${payload.row_count} 条（已截断）`
+              : `已导出 ${payload.row_count} 条 CSV`
+          )
+          return
+        }
+
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(payload.content)
+          toast.success(
+            payload.row_count > 0
+              ? `已复制 ${payload.row_count} 条变更摘要`
+              : '已复制空摘要（该时间窗无变更）'
+          )
+        } else {
+          downloadTextFile(payload.filename, payload.content, 'text/plain;charset=utf-8')
+          toast.success('当前环境不支持剪贴板，已改为下载文本文件')
+        }
+      } catch {
+        toast.error(format === 'csv' ? '导出 CSV 失败' : '复制摘要失败')
+      } finally {
+        setExporting(null)
+      }
+    },
+    [changeTypeFilter, digest, digestCursor, ecosystemFilter, effectiveRepoFilter]
   )
 
   const hasActiveFilters =
@@ -779,7 +825,7 @@ export default function RepositoriesPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">最近依赖变更</CardTitle>
           <CardDescription>
-            跨仓库查看清单差异。可用仓库、生态与变更类型筛选，定位 20–30 仓中的噪声。
+            跨仓库查看清单差异。可用仓库、生态与变更类型筛选；导出 CSV / 复制摘要便于周报（沿用当前筛选与 digest 游标窗口）。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -833,6 +879,28 @@ export default function RepositoriesPanel() {
                 清除筛选
               </Button>
             ) : null}
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={changesLoading || exporting !== null}
+                loading={exporting === 'summary'}
+                onClick={() => void handleExportChanges('summary')}
+              >
+                <Copy className="h-4 w-4" />
+                复制摘要
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={changesLoading || exporting !== null}
+                loading={exporting === 'csv'}
+                onClick={() => void handleExportChanges('csv')}
+              >
+                <Download className="h-4 w-4" />
+                导出 CSV
+              </Button>
+            </div>
           </div>
 
           {changesLoading ? (

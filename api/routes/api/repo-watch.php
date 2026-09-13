@@ -26,6 +26,7 @@ Route::prefix('repo-watch')->group(function (): void {
     Route::get('/repositories/{watchedRepository}/changes', [WatchedRepositoryController::class, 'changes']);
 
     Route::get('/dependency-changes', [DependencyChangeController::class, 'index']);
+    Route::get('/dependency-changes/export', [DependencyChangeController::class, 'export']);
     Route::get('/advisories', [PackageAdvisoryController::class, 'index']);
     Route::get('/activity-digest', [FleetActivityDigestController::class, 'show']);
 
