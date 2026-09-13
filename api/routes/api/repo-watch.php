@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Tools\DependencyChangeController;
+use App\Http\Controllers\Api\Tools\FleetActivityDigestController;
 use App\Http\Controllers\Api\Tools\PackageAdvisoryController;
 use App\Http\Controllers\Api\Tools\RepositoryWatchController;
 use App\Http\Controllers\Api\Tools\RepoWatchNotificationController;
@@ -26,6 +27,7 @@ Route::prefix('repo-watch')->group(function (): void {
 
     Route::get('/dependency-changes', [DependencyChangeController::class, 'index']);
     Route::get('/advisories', [PackageAdvisoryController::class, 'index']);
+    Route::get('/activity-digest', [FleetActivityDigestController::class, 'show']);
 
     Route::get('/notifications', [RepoWatchNotificationController::class, 'index']);
     Route::post('/notifications/read-all', [RepoWatchNotificationController::class, 'markAllRead']);

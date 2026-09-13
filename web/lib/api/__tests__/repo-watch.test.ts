@@ -16,6 +16,9 @@ import {
   markRepoWatchNotificationRead,
   markAllRepoWatchNotificationsRead,
   listPackageAdvisories,
+  listFleetActivityDigest,
+  readFleetDigestLastVisit,
+  writeFleetDigestLastVisit,
 } from '../repo-watch'
 
 describe('repo-watch API functions', () => {
@@ -54,6 +57,9 @@ describe('repo-watch API functions', () => {
     expect(typeof markRepoWatchNotificationRead).toBe('function')
     expect(typeof markAllRepoWatchNotificationsRead).toBe('function')
     expect(typeof listPackageAdvisories).toBe('function')
+    expect(typeof listFleetActivityDigest).toBe('function')
+    expect(typeof readFleetDigestLastVisit).toBe('function')
+    expect(typeof writeFleetDigestLastVisit).toBe('function')
   })
 })
 
