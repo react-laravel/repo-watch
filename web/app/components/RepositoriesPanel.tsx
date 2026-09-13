@@ -46,6 +46,7 @@ import {
   type FleetActivityDigest,
   type PackageAdvisoryFinding,
   type PackageAdvisoryPolicy,
+  type AdvisorySeverity,
   type RepositoryScanStatus,
   type RepoWatchNotification,
   type RepoWatchNotificationPolicy,
@@ -90,11 +91,20 @@ const WATCH_PRIORITY_LABEL: Record<WatchPriority, string> = {
   low: '低优先',
 }
 
+const ADVISORY_SEVERITY_LABEL: Record<AdvisorySeverity, string> = {
+  critical: 'critical',
+  high: 'high',
+  moderate: 'moderate',
+  low: 'low',
+  unknown: 'unknown',
+}
+
 const selectClassName =
   'border-input bg-background h-8 rounded-md border px-2 text-xs disabled:cursor-not-allowed disabled:opacity-50'
 
 type EcosystemFilter = 'all' | Ecosystem
 type ChangeTypeFilter = 'all' | DependencyChangeType
+type SeverityFilter = 'all' | AdvisorySeverity
 
 export default function RepositoriesPanel() {
   const [repositories, setRepositories] = useState<WatchedRepository[]>([])
@@ -119,6 +129,7 @@ export default function RepositoriesPanel() {
   const [ecosystemFilter, setEcosystemFilter] = useState<EcosystemFilter>('all')
   const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeFilter>('all')
   const [includeMuted, setIncludeMuted] = useState(false)
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
   const [digest, setDigest] = useState<FleetActivityDigest | null>(null)
   const [digestLoading, setDigestLoading] = useState(false)
   const [digestCursor, setDigestCursor] = useState<string | null>(null)
@@ -173,6 +184,7 @@ export default function RepositoriesPanel() {
         limit: 30,
         repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
         ecosystem: ecosystemFilter,
+        severity: severityFilter,
         status: 'open',
         includeMuted,
       })
@@ -181,7 +193,7 @@ export default function RepositoriesPanel() {
     } finally {
       setAdvisoriesLoading(false)
     }
-  }, [effectiveRepoFilter, ecosystemFilter, includeMuted])
+  }, [effectiveRepoFilter, ecosystemFilter, severityFilter, includeMuted])
 
   const loadChanges = useCallback(async () => {
     setChangesLoading(true)
@@ -463,6 +475,7 @@ export default function RepositoriesPanel() {
     ecosystemFilter !== 'all' ||
     changeTypeFilter !== 'all' ||
     includeMuted
+  const hasAdvisoryFilters = severityFilter !== 'all' || hasActiveFilters
   const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
   const firstRunChecklist = useMemo(
     () =>
@@ -923,18 +936,50 @@ export default function RepositoriesPanel() {
             {advisoryPolicy?.ghsa_enrichment_enabled
               ? '；可选 GHSA 二次富化在有 PAT 且未触达速率地板时补充 GHSA id / 严重度 / 链接'
               : ''}
-            。默认只保留 ≥{advisoryPolicy?.min_severity ?? 'high'} 的命中；critical/high 会进入高信号通知。
+            。默认只保留 ≥{advisoryPolicy?.min_severity ?? 'high'} 的命中；可用严重度筛选聚焦高危；critical/high
+            会进入高信号通知。沿用下方变更区的仓库 / 生态 / 静音筛选。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Filter className="text-muted-foreground h-3.5 w-3.5" />
+            <select
+              className={selectClassName}
+              value={severityFilter}
+              onChange={event => setSeverityFilter(event.target.value as SeverityFilter)}
+              disabled={advisoriesLoading}
+              aria-label="公告严重度筛选"
+            >
+              <option value="all">全部严重度</option>
+              {(Object.keys(ADVISORY_SEVERITY_LABEL) as AdvisorySeverity[]).map(level => (
+                <option key={level} value={level}>
+                  {ADVISORY_SEVERITY_LABEL[level]}
+                </option>
+              ))}
+            </select>
+            {severityFilter !== 'all' ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={advisoriesLoading}
+                onClick={() => setSeverityFilter('all')}
+              >
+                清除严重度
+              </Button>
+            ) : null}
+          </div>
           {advisoriesLoading ? (
             <div className="text-muted-foreground text-sm">正在加载安全公告…</div>
           ) : advisories.length === 0 ? (
             <EmptyState
               variant="compact"
               icon={<ShieldAlert className="h-8 w-8" />}
-              title="暂无开放公告"
-              description="完成仓库扫描后，OSV 会按小时（或扫描后）检查 lock 版本。"
+              title={hasAdvisoryFilters ? '没有匹配的安全公告' : '暂无开放公告'}
+              description={
+                hasAdvisoryFilters
+                  ? '试试放宽严重度，或变更区的仓库 / 生态 / 静音筛选。'
+                  : '完成仓库扫描后，OSV 会按小时（或扫描后）检查 lock 版本。'
+              }
             />
           ) : (
             advisories.map(finding => (
