@@ -7,6 +7,7 @@ use App\Models\Repo\PackageAdvisoryFinding;
 use App\Models\Repo\RepoWatchNotification;
 use App\Models\Repo\WatchedRepository;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * Cheap fleet-wide "what mattered since T" summary for 20–30 watched repos.
@@ -20,11 +21,14 @@ class FleetActivityDigestService
      *   until: string,
      *   window_hours: float,
      *   source: 'since'|'hours'|'default'|'clamped',
+     *   fleet: array{watched: int, active: int, muted: int},
      *   totals: array{
      *     dependency_changes: int,
      *     notifications: int,
      *     unread_notifications: int,
-     *     advisories_new: int
+     *     advisories_new: int,
+     *     active: array{dependency_changes: int, notifications: int, advisories_new: int},
+     *     muted: array{dependency_changes: int, notifications: int, advisories_new: int}
      *   },
      *   by_repository: list<array{
      *     id: int,
@@ -56,6 +60,7 @@ class FleetActivityDigestService
             ->get(['id', 'full_name', 'url', 'owner', 'repo', 'muted_at', 'watch_priority']);
 
         $repositoryIds = $repositories->pluck('id');
+        $fleet = $this->buildFleetSummary($repositories);
 
         $policy = [
             'default_hours' => $defaultHours,
@@ -69,12 +74,8 @@ class FleetActivityDigestService
                 'until' => $until->toIso8601String(),
                 'window_hours' => round($since->diffInSeconds($until) / 3600, 2),
                 'source' => $source,
-                'totals' => [
-                    'dependency_changes' => 0,
-                    'notifications' => 0,
-                    'unread_notifications' => 0,
-                    'advisories_new' => 0,
-                ],
+                'fleet' => $fleet,
+                'totals' => $this->emptyTotals(),
                 'by_repository' => [],
                 'repositories_capped' => false,
                 'policy' => $policy,
@@ -190,20 +191,109 @@ class FleetActivityDigestService
             ->values()
             ->all();
 
+        $mutedIdSet = $repositories
+            ->filter(fn (WatchedRepository $repository) => $repository->isMuted())
+            ->mapWithKeys(fn (WatchedRepository $repository) => [$repository->id => true])
+            ->all();
+
+        $activeActivity = [
+            'dependency_changes' => 0,
+            'notifications' => 0,
+            'advisories_new' => 0,
+        ];
+        $mutedActivity = [
+            'dependency_changes' => 0,
+            'notifications' => 0,
+            'advisories_new' => 0,
+        ];
+
+        foreach ($changesByRepo as $repoId => $changes) {
+            $bucket = isset($mutedIdSet[$repoId]) ? 'muted' : 'active';
+            if ($bucket === 'muted') {
+                $mutedActivity['dependency_changes'] += $changes['total'];
+            } else {
+                $activeActivity['dependency_changes'] += $changes['total'];
+            }
+        }
+
+        foreach ($notificationsByRepo as $repoKey => $count) {
+            // Unscoped notifications (null repository) count as active fleet signal.
+            if ($repoKey !== 'none' && isset($mutedIdSet[$repoKey])) {
+                $mutedActivity['notifications'] += $count;
+            } else {
+                $activeActivity['notifications'] += $count;
+            }
+        }
+
+        foreach ($advisoriesByRepo as $repoId => $count) {
+            if (isset($mutedIdSet[$repoId])) {
+                $mutedActivity['advisories_new'] += $count;
+            } else {
+                $activeActivity['advisories_new'] += $count;
+            }
+        }
+
         return [
             'since' => $since->toIso8601String(),
             'until' => $until->toIso8601String(),
             'window_hours' => round($since->diffInSeconds($until) / 3600, 2),
             'source' => $source,
+            'fleet' => $fleet,
             'totals' => [
-                'dependency_changes' => (int) collect($changesByRepo)->sum('total'),
-                'notifications' => (int) array_sum($notificationsByRepo),
+                'dependency_changes' => $activeActivity['dependency_changes'] + $mutedActivity['dependency_changes'],
+                'notifications' => $activeActivity['notifications'] + $mutedActivity['notifications'],
                 'unread_notifications' => $unreadNotifications,
-                'advisories_new' => (int) array_sum($advisoriesByRepo),
+                'advisories_new' => $activeActivity['advisories_new'] + $mutedActivity['advisories_new'],
+                'active' => $activeActivity,
+                'muted' => $mutedActivity,
             ],
             'by_repository' => $byRepository,
             'repositories_capped' => $capped,
             'policy' => $policy,
+        ];
+    }
+
+    /**
+     * @param  Collection<int, WatchedRepository>  $repositories
+     * @return array{watched: int, active: int, muted: int}
+     */
+    private function buildFleetSummary($repositories): array
+    {
+        $watched = $repositories->count();
+        $muted = $repositories->filter(fn (WatchedRepository $repository) => $repository->isMuted())->count();
+
+        return [
+            'watched' => $watched,
+            'active' => $watched - $muted,
+            'muted' => $muted,
+        ];
+    }
+
+    /**
+     * @return array{
+     *   dependency_changes: int,
+     *   notifications: int,
+     *   unread_notifications: int,
+     *   advisories_new: int,
+     *   active: array{dependency_changes: int, notifications: int, advisories_new: int},
+     *   muted: array{dependency_changes: int, notifications: int, advisories_new: int}
+     * }
+     */
+    private function emptyTotals(): array
+    {
+        $zero = [
+            'dependency_changes' => 0,
+            'notifications' => 0,
+            'advisories_new' => 0,
+        ];
+
+        return [
+            'dependency_changes' => 0,
+            'notifications' => 0,
+            'unread_notifications' => 0,
+            'advisories_new' => 0,
+            'active' => $zero,
+            'muted' => $zero,
         ];
     }
 

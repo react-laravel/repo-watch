@@ -559,7 +559,7 @@ export default function RepositoriesPanel() {
             {digestCursor
               ? `自上次查看（${formatDateTime(digestCursor)}）起的舰队摘要`
               : `默认最近 ${digest?.policy.default_hours ?? 24} 小时；下次打开将使用本地 last-visit 游标`}
-            。仅查本地库，不消耗 GitHub 配额。
+            。顶部展示关注中 / 活跃 / 静音仓数，以及活跃 vs 静音活动拆分。仅查本地库，不消耗 GitHub 配额。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -568,12 +568,25 @@ export default function RepositoriesPanel() {
           ) : digest ? (
             <>
               <div className="flex flex-wrap gap-2 text-xs">
+                <Badge variant="secondary">关注 {digest.fleet.watched}</Badge>
+                <Badge variant="outline">活跃 {digest.fleet.active}</Badge>
+                <Badge variant={digest.fleet.muted > 0 ? 'secondary' : 'outline'}>
+                  静音 {digest.fleet.muted}
+                </Badge>
+                <Badge variant="outline">窗口 {digest.window_hours}h</Badge>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
                 <button
                   type="button"
                   className="inline-flex"
                   onClick={() => focusSection('changes')}
                 >
-                  <Badge variant="outline">依赖变更 {digest.totals.dependency_changes}</Badge>
+                  <Badge variant="outline">
+                    依赖变更 {digest.totals.dependency_changes}
+                    {digest.fleet.muted > 0
+                      ? ` · 活跃 ${digest.totals.active.dependency_changes} / 静音 ${digest.totals.muted.dependency_changes}`
+                      : ''}
+                  </Badge>
                 </button>
                 <button
                   type="button"
@@ -585,6 +598,9 @@ export default function RepositoriesPanel() {
                     {digest.totals.unread_notifications > 0
                       ? ` · ${digest.totals.unread_notifications} 未读`
                       : ''}
+                    {digest.fleet.muted > 0
+                      ? ` · 活跃 ${digest.totals.active.notifications} / 静音 ${digest.totals.muted.notifications}`
+                      : ''}
                   </Badge>
                 </button>
                 <button
@@ -594,9 +610,11 @@ export default function RepositoriesPanel() {
                 >
                   <Badge variant={digest.totals.advisories_new > 0 ? 'secondary' : 'outline'}>
                     新公告 {digest.totals.advisories_new}
+                    {digest.fleet.muted > 0
+                      ? ` · 活跃 ${digest.totals.active.advisories_new} / 静音 ${digest.totals.muted.advisories_new}`
+                      : ''}
                   </Badge>
                 </button>
-                <Badge variant="outline">窗口 {digest.window_hours}h</Badge>
               </div>
               {digest.by_repository.length === 0 ? (
                 <div className="text-muted-foreground text-sm">该时间窗内暂无仓库级活动。</div>

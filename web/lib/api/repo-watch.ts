@@ -479,11 +479,26 @@ export interface FleetActivityDigest {
   until: string
   window_hours: number
   source: 'since' | 'hours' | 'default' | 'clamped'
+  fleet: {
+    watched: number
+    active: number
+    muted: number
+  }
   totals: {
     dependency_changes: number
     notifications: number
     unread_notifications: number
     advisories_new: number
+    active: {
+      dependency_changes: number
+      notifications: number
+      advisories_new: number
+    }
+    muted: {
+      dependency_changes: number
+      notifications: number
+      advisories_new: number
+    }
   }
   by_repository: FleetActivityDigestRepo[]
   repositories_capped: boolean
