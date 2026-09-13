@@ -371,3 +371,74 @@ export const listPackageAdvisories = (filters: PackageAdvisoryFilters = {}) => {
   return get<PackageAdvisoriesResponse>(`/repo-watch/advisories?${params.toString()}`)
 }
 
+export interface FleetActivityDigestRepo {
+  id: number
+  full_name: string
+  url: string
+  dependency_changes: number
+  change_types: {
+    added: number
+    updated: number
+    removed: number
+  }
+  notifications: number
+  advisories_new: number
+}
+
+export interface FleetActivityDigest {
+  since: string
+  until: string
+  window_hours: number
+  source: 'since' | 'hours' | 'default' | 'clamped'
+  totals: {
+    dependency_changes: number
+    notifications: number
+    unread_notifications: number
+    advisories_new: number
+  }
+  by_repository: FleetActivityDigestRepo[]
+  repositories_capped: boolean
+  policy: {
+    default_hours: number
+    max_hours: number
+    max_repositories: number
+  }
+}
+
+export const listFleetActivityDigest = (options?: { since?: string | null; hours?: number | null }) => {
+  const params = new URLSearchParams()
+  if (options?.since) {
+    params.set('since', options.since)
+  } else if (options?.hours) {
+    params.set('hours', String(options.hours))
+  }
+
+  const query = params.toString()
+  return get<FleetActivityDigest>(`/repo-watch/activity-digest${query ? `?${query}` : ''}`)
+}
+
+export const FLEET_DIGEST_LAST_VISIT_KEY = 'repo-watch:lastVisitAt'
+
+export const readFleetDigestLastVisit = (): string | null => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  try {
+    const value = window.localStorage.getItem(FLEET_DIGEST_LAST_VISIT_KEY)
+    return value && value.trim() !== '' ? value : null
+  } catch {
+    return null
+  }
+}
+
+export const writeFleetDigestLastVisit = (iso: string = new Date().toISOString()): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    window.localStorage.setItem(FLEET_DIGEST_LAST_VISIT_KEY, iso)
+  } catch {
+    // Ignore quota / private-mode failures; digest falls back to default window.
+  }
+}
+

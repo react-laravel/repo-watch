@@ -119,6 +119,35 @@ API:
 
 UI: **仓库与变更** → **高信号通知** strip.
 
+## Fleet activity digest (自上次查看 / 最近活动)
+
+At 20–30 repos the filtered changes feed is too long to skim. Repo Watch exposes a **local-only** fleet digest that aggregates existing tables — no GitHub PAT spend, no new product silo.
+
+| Knob | Env | Default |
+| --- | --- | --- |
+| Default window | `REPO_WATCH_DIGEST_DEFAULT_HOURS` | `24` |
+| Max window (clamp) | `REPO_WATCH_DIGEST_MAX_HOURS` | `48` |
+| Max repos in response | `REPO_WATCH_DIGEST_MAX_REPOSITORIES` | `30` |
+
+API:
+
+- `GET /api/repo-watch/activity-digest?since=<ISO8601>` — preferred cursor (UI stores last visit in `localStorage`)
+- `GET /api/repo-watch/activity-digest?hours=24` — fixed window
+- Default: last `REPO_WATCH_DIGEST_DEFAULT_HOURS`; windows older than max are clamped
+
+Response (capped):
+
+- `totals`: dependency_changes / notifications / unread_notifications / advisories_new
+- `by_repository[]`: per-repo counts + `change_types{added,updated,removed}` (repos with zero activity omitted; sorted by score)
+
+Sources:
+
+- `dependency_changes.detected_at` (indexed)
+- `repo_watch_notifications.created_at` (indexed)
+- `package_advisory_findings.first_detected_at` (indexed with repo)
+
+UI: **仓库与变更** → **最近活动** strip. Counts deep-link into the existing notifications / advisories / changes sections with the matching repo filter applied. Webhook digests are **not** added here — keep using per-event `REPO_WATCH_NOTIFY_WEBHOOK_URL`.
+
 ## Package advisories (OSV + optional GHSA)
 
 Repo Watch queries **[OSV](https://osv.dev)** (`https://api.osv.dev`) against **lock-sourced** versions from the latest dependency snapshot per manifest. This path does **not** use the GitHub API budget (important at 20–30 repos).
@@ -204,12 +233,13 @@ Run `php artisan migrate` once on the tip of the stack (or after each merge — 
 | `2026_09_13_000003_create_package_advisories_tables` | #6 | OSV advisory catalog + findings |
 | `2026_09_13_000004_create_failed_jobs_table` | #7 | Queue failure recording |
 | `2026_09_13_000005_add_ghsa_enrichment_to_package_advisories` | #9 | Optional GHSA id + enriched_at |
+| `2026_09_13_000006_add_first_detected_index_to_package_advisory_findings` | #10 | Digest-friendly first_detected index |
 
-Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → #8 → this (GHSA enrichment)**.
+Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → #8 → #9 → this (fleet activity digest)**.
 
 ## Go-live checklist (20–30 repos)
 
-Use this path on `https://repo-watch.dogeow.com` after merging the stacked PRs (`#1`→`#8`→GHSA enrichment).
+Use this path on `https://repo-watch.dogeow.com` after merging the stacked PRs (`#1`→`#9`→fleet digest).
 
 ### 1. Infrastructure
 
