@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Tools;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Tools\BulkStoreWatchedRepositoriesRequest;
 use App\Http\Requests\Tools\StoreWatchedRepositoryRequest;
+use App\Http\Requests\Tools\UpdateWatchedRepositoryRequest;
 use App\Jobs\ScanWatchedRepository;
 use App\Models\Repo\DependencyChange;
 use App\Models\Repo\WatchedRepository;
@@ -33,13 +34,18 @@ class WatchedRepositoryController extends Controller
             ->withCount('watchedPackages')
             ->orderByDesc('updated_at')
             ->get()
-            ->sortBy(function (WatchedRepository $repository): int {
-                return match ($repository->scan_status) {
-                    WatchedRepository::STATUS_ERROR => 0,
-                    WatchedRepository::STATUS_SCANNING => 1,
-                    WatchedRepository::STATUS_PENDING => 2,
-                    default => 3,
-                };
+            ->sortBy(function (WatchedRepository $repository): array {
+                return [
+                    match ($repository->scan_status) {
+                        WatchedRepository::STATUS_ERROR => 0,
+                        WatchedRepository::STATUS_SCANNING => 1,
+                        WatchedRepository::STATUS_PENDING => 2,
+                        default => 3,
+                    },
+                    $repository->isMuted() ? 1 : 0,
+                    $repository->prioritySortKey(),
+                    -1 * ($repository->updated_at?->getTimestamp() ?? 0),
+                ];
             })
             ->values();
 
@@ -185,6 +191,37 @@ class WatchedRepositoryController extends Controller
         return $this->success($this->transformRepository($watchedRepository));
     }
 
+    public function update(UpdateWatchedRepositoryRequest $request, WatchedRepository $watchedRepository): JsonResponse
+    {
+        if ((int) $watchedRepository->user_id !== (int) $request->user()->id) {
+            return $this->error('无权修改该仓库', null, 403);
+        }
+
+        $validated = $request->validated();
+
+        if ($validated === []) {
+            return $this->error('请提供 muted 或 watch_priority', null, 422);
+        }
+
+        $updates = [];
+
+        if (array_key_exists('muted', $validated)) {
+            $updates['muted_at'] = $validated['muted'] ? now() : null;
+        }
+
+        if (array_key_exists('watch_priority', $validated)) {
+            $updates['watch_priority'] = $validated['watch_priority'];
+        }
+
+        $watchedRepository->update($updates);
+        $watchedRepository->loadCount('watchedPackages');
+
+        return $this->success(
+            $this->transformRepository($watchedRepository->fresh() ?? $watchedRepository),
+            '仓库关注偏好已更新'
+        );
+    }
+
     public function destroy(Request $request, WatchedRepository $watchedRepository): JsonResponse
     {
         if ((int) $watchedRepository->user_id !== (int) $request->user()->id) {
@@ -313,6 +350,9 @@ class WatchedRepositoryController extends Controller
             'package_count' => $repository->package_count,
             'watched_packages_count' => $repository->watched_packages_count
                 ?? $repository->watchedPackages()->count(),
+            'muted' => $repository->isMuted(),
+            'muted_at' => $repository->muted_at,
+            'watch_priority' => $repository->watch_priority ?: WatchedRepository::PRIORITY_NORMAL,
             'updated_at' => $repository->updated_at,
         ];
     }

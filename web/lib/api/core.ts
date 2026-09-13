@@ -135,6 +135,8 @@ export const post = <T = unknown>(endpoint: string, data?: unknown) =>
   apiRequest<T>(endpoint, 'POST', data)
 export const put = <T = unknown>(endpoint: string, data?: unknown) =>
   apiRequest<T>(endpoint, 'PUT', data)
+export const patch = <T = unknown>(endpoint: string, data?: unknown) =>
+  apiRequest<T>(endpoint, 'PATCH', data)
 export const del = <T = unknown>(endpoint: string, data?: unknown) =>
   apiRequest<T>(endpoint, 'DELETE', data)
 
