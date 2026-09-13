@@ -238,9 +238,9 @@ OSV remains the primary path; GHSA never blocks advisory detection.
 
 API / UI:
 
-- `GET /api/repo-watch/advisories?repository_id=&ecosystem=&severity=&status=open&limit=`
+- `GET /api/repo-watch/advisories?repository_id=&ecosystem=&severity=&status=open&limit=&include_muted=`
 - Policy includes `ghsa_enrichment_*` flags
-- UI: **仓库与变更** → **包安全公告** (shows GHSA badge when enriched)
+- UI: **仓库与变更** → **包安全公告** — severity select (critical/high/moderate/low/unknown); shares repo / ecosystem / muted filters with the changes bar; shows GHSA badge when enriched
 
 Manual:
 
