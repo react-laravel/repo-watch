@@ -1,11 +1,12 @@
 'use client'
 
-import { del, get, post } from './core'
+import { del, get, patch, post } from './core'
 
 export type WatchLevel = 'major' | 'minor' | 'patch'
 export type Ecosystem = 'npm' | 'composer'
 export type DependencyChangeType = 'added' | 'removed' | 'updated'
 export type RepositoryScanStatus = 'idle' | 'pending' | 'scanning' | 'error'
+export type WatchPriority = 'high' | 'normal' | 'low'
 
 export interface RepoDependencyPreviewItem {
   package_name: string
@@ -73,6 +74,9 @@ export interface WatchedRepository {
   last_scan_error?: string | null
   package_count: number
   watched_packages_count: number
+  muted: boolean
+  muted_at?: string | null
+  watch_priority: WatchPriority
   updated_at?: string | null
 }
 
@@ -193,6 +197,16 @@ export const bulkImportWatchedRepositories = (repositories: string[], scan = tru
 export const deleteWatchedRepository = (id: number) =>
   del<void>(`/repo-watch/repositories/${id}`)
 
+export interface UpdateWatchedRepositoryPreferencesInput {
+  muted?: boolean
+  watch_priority?: WatchPriority
+}
+
+export const updateWatchedRepositoryPreferences = (
+  id: number,
+  preferences: UpdateWatchedRepositoryPreferencesInput
+) => patch<WatchedRepository>(`/repo-watch/repositories/${id}`, preferences)
+
 export const scanWatchedRepository = (id: number, sync = false) =>
   post<{
     repository?: WatchedRepository
@@ -237,6 +251,65 @@ export const listDependencyChanges = (filters: number | DependencyChangeFilters 
   }
 
   return get<DependencyChange[]>(`/repo-watch/dependency-changes?${params.toString()}`)
+}
+
+export type DependencyChangeExportFormat = 'csv' | 'summary'
+
+export interface DependencyChangeExportFilters extends DependencyChangeFilters {
+  format?: DependencyChangeExportFormat
+  since?: string | null
+  hours?: number | null
+}
+
+export interface DependencyChangeExport {
+  format: DependencyChangeExportFormat
+  filename: string
+  content: string
+  row_count: number
+  truncated: boolean
+  since: string
+  until: string
+  window_source: 'since' | 'hours' | 'default' | 'clamped'
+  filters: {
+    repository_id?: number | null
+    ecosystem?: string | null
+    change_type?: string | null
+  }
+}
+
+export const exportDependencyChanges = (filters: DependencyChangeExportFilters = {}) => {
+  const params = new URLSearchParams()
+  params.set('format', filters.format ?? 'csv')
+  params.set('limit', String(filters.limit ?? 500))
+  if (filters.since) {
+    params.set('since', filters.since)
+  } else if (filters.hours) {
+    params.set('hours', String(filters.hours))
+  }
+  if (filters.repositoryId) {
+    params.set('repository_id', String(filters.repositoryId))
+  }
+  if (filters.ecosystem && filters.ecosystem !== 'all') {
+    params.set('ecosystem', filters.ecosystem)
+  }
+  if (filters.changeType && filters.changeType !== 'all') {
+    params.set('change_type', filters.changeType)
+  }
+
+  return get<DependencyChangeExport>(`/repo-watch/dependency-changes/export?${params.toString()}`)
+}
+
+export const downloadTextFile = (filename: string, content: string, mime = 'text/plain;charset=utf-8') => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 export type RepoWatchNotificationType = 'dependency_high_signal' | 'scan_failed' | 'package_advisory'
@@ -383,6 +456,8 @@ export interface FleetActivityDigestRepo {
   }
   notifications: number
   advisories_new: number
+  muted: boolean
+  watch_priority: WatchPriority
 }
 
 export interface FleetActivityDigest {

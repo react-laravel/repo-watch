@@ -119,6 +119,19 @@ API:
 
 UI: **仓库与变更** → **高信号通知** strip.
 
+## Per-repo mute & watch priority (低噪声 20–30 仓)
+
+Each `watched_repositories` row can be tuned without stopping scans:
+
+| Field | API | Behavior |
+| --- | --- | --- |
+| `muted_at` / `muted` | `PATCH /api/repo-watch/repositories/{id}` `{ "muted": true\|false }` | Scans continue; **high-signal notifications** (major/removal/scan failure/advisory) are skipped for that repo |
+| `watch_priority` | same endpoint `{ "watch_priority": "high"\|"normal"\|"low" }` | Sorts repo list (after scan-health urgency) and boosts/de-prioritizes rows in **最近活动** digest |
+
+Defaults: `muted=false`, `watch_priority=normal`. List/show/bulk responses include `muted`, `muted_at`, `watch_priority`.
+
+UI: **关注中的仓库** → per-row priority select + **静音/恢复** toggle.
+
 ## Fleet activity digest (自上次查看 / 最近活动)
 
 At 20–30 repos the filtered changes feed is too long to skim. Repo Watch exposes a **local-only** fleet digest that aggregates existing tables — no GitHub PAT spend, no new product silo.
@@ -138,7 +151,7 @@ API:
 Response (capped):
 
 - `totals`: dependency_changes / notifications / unread_notifications / advisories_new
-- `by_repository[]`: per-repo counts + `change_types{added,updated,removed}` (repos with zero activity omitted; sorted by score)
+- `by_repository[]`: per-repo counts + `change_types{added,updated,removed}` + `muted` + `watch_priority` (repos with zero activity omitted; sorted by activity score with priority boost / muted de-prioritization)
 
 Sources:
 
@@ -147,6 +160,17 @@ Sources:
 - `package_advisory_findings.first_detected_at` (indexed with repo)
 
 UI: **仓库与变更** → **最近活动** strip. Counts deep-link into the existing notifications / advisories / changes sections with the matching repo filter applied. Webhook digests are **not** added here — keep using per-event `REPO_WATCH_NOTIFY_WEBHOOK_URL`.
+
+## Dependency changes export (周报 / 分享)
+
+For weekly review across 20–30 repos, export the same filtered change set the UI shows:
+
+- `GET /api/repo-watch/dependency-changes/export?format=csv|summary`
+- Optional: `since` / `hours` (same clamp as digest), `repository_id`, `ecosystem`, `change_type`, `limit` (max 500)
+- Local DB only — no GitHub PAT
+- CSV for spreadsheets; `summary` plain text for Slack/clipboard
+
+UI: **仓库与变更** → **最近依赖变更** → **导出 CSV** / **复制摘要** (uses active filters + last-visit cursor when present).
 
 ## Package advisories (OSV + optional GHSA)
 
@@ -235,7 +259,7 @@ Run `php artisan migrate` once on the tip of the stack (or after each merge — 
 | `2026_09_13_000005_add_ghsa_enrichment_to_package_advisories` | #9 | Optional GHSA id + enriched_at |
 | `2026_09_13_000006_add_first_detected_index_to_package_advisory_findings` | #10 | Digest-friendly first_detected index |
 
-Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → #8 → #9 → this (fleet activity digest)**.
+Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → #8 → #9 → #10 → this (dependency-changes export)**.
 
 ## Go-live checklist (20–30 repos)
 

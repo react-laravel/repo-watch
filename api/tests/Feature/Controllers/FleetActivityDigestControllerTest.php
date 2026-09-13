@@ -195,7 +195,58 @@ class FleetActivityDigestControllerTest extends TestCase
             ->assertJsonPath('data.by_repository.0.advisories_new', 1)
             ->assertJsonPath('data.by_repository.1.full_name', 'acme/beta')
             ->assertJsonPath('data.by_repository.1.dependency_changes', 1)
+            ->assertJsonPath('data.by_repository.0.muted', false)
+            ->assertJsonPath('data.by_repository.0.watch_priority', 'normal')
             ->assertJsonMissingPath('data.by_repository.2');
+    }
+
+    public function test_digest_prioritizes_high_priority_repos_and_includes_muted_flag(): void
+    {
+        $this->withRepoWatchIdentity();
+
+        $high = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'high',
+            'url' => 'https://github.com/acme/high',
+            'full_name' => 'acme/high',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+            'watch_priority' => WatchedRepository::PRIORITY_HIGH,
+        ]);
+        $muted = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'muted',
+            'url' => 'https://github.com/acme/muted',
+            'full_name' => 'acme/muted',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+            'muted_at' => now(),
+            'watch_priority' => WatchedRepository::PRIORITY_NORMAL,
+        ]);
+
+        $now = now();
+
+        foreach ([$high, $muted] as $repository) {
+            DependencyChange::query()->create([
+                'watched_repository_id' => $repository->id,
+                'ecosystem' => 'npm',
+                'manifest_path' => 'package.json',
+                'package_name' => 'pkg-'.$repository->repo,
+                'change_type' => DependencyChange::TYPE_ADDED,
+                'new_version' => '1.0.0',
+                'detected_at' => $now->copy()->subHour(),
+            ]);
+        }
+
+        $this->getJson('/api/repo-watch/activity-digest?hours=24')
+            ->assertOk()
+            ->assertJsonPath('data.by_repository.0.full_name', 'acme/high')
+            ->assertJsonPath('data.by_repository.0.watch_priority', 'high')
+            ->assertJsonPath('data.by_repository.0.muted', false)
+            ->assertJsonPath('data.by_repository.1.full_name', 'acme/muted')
+            ->assertJsonPath('data.by_repository.1.muted', true);
     }
 
     public function test_digest_clamps_since_to_max_hours(): void

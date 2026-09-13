@@ -288,4 +288,61 @@ class WatchedRepositoryControllerTest extends TestCase
         $this->assertSame(WatchedRepository::STATUS_PENDING, $failing->fresh()->scan_status);
         $this->assertSame(WatchedRepository::STATUS_IDLE, $healthy->fresh()->scan_status);
     }
+
+    public function test_user_can_update_watch_preferences_and_list_includes_defaults(): void
+    {
+        $this->withRepoWatchIdentity();
+
+        $repository = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'demo',
+            'url' => 'https://github.com/acme/demo',
+            'full_name' => 'acme/demo',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+        ]);
+
+        $this->getJson('/api/repo-watch/repositories')
+            ->assertOk()
+            ->assertJsonPath('data.repositories.0.muted', false)
+            ->assertJsonPath('data.repositories.0.watch_priority', 'normal');
+
+        $this->patchJson("/api/repo-watch/repositories/{$repository->id}", [
+            'muted' => true,
+            'watch_priority' => 'high',
+        ])->assertOk()
+            ->assertJsonPath('data.muted', true)
+            ->assertJsonPath('data.watch_priority', 'high')
+            ->assertJsonPath('message', '仓库关注偏好已更新');
+
+        $this->assertNotNull($repository->fresh()->muted_at);
+
+        $this->patchJson("/api/repo-watch/repositories/{$repository->id}", [
+            'muted' => false,
+        ])->assertOk()
+            ->assertJsonPath('data.muted', false)
+            ->assertJsonPath('data.watch_priority', 'high');
+
+        $this->assertNull($repository->fresh()->muted_at);
+    }
+
+    public function test_user_cannot_update_another_users_repository_preferences(): void
+    {
+        $this->withRepoWatchIdentity();
+
+        $repository = WatchedRepository::query()->create([
+            'user_id' => 99,
+            'provider' => 'github',
+            'owner' => 'other',
+            'repo' => 'secret',
+            'url' => 'https://github.com/other/secret',
+            'full_name' => 'other/secret',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+        ]);
+
+        $this->patchJson("/api/repo-watch/repositories/{$repository->id}", [
+            'muted' => true,
+        ])->assertForbidden();
+    }
 }
