@@ -19,6 +19,8 @@ import {
   listFleetActivityDigest,
   readFleetDigestLastVisit,
   writeFleetDigestLastVisit,
+  exportDependencyChanges,
+  downloadTextFile,
 } from '../repo-watch'
 
 describe('repo-watch API functions', () => {
@@ -60,6 +62,8 @@ describe('repo-watch API functions', () => {
     expect(typeof listFleetActivityDigest).toBe('function')
     expect(typeof readFleetDigestLastVisit).toBe('function')
     expect(typeof writeFleetDigestLastVisit).toBe('function')
+    expect(typeof exportDependencyChanges).toBe('function')
+    expect(typeof downloadTextFile).toBe('function')
   })
 })
 

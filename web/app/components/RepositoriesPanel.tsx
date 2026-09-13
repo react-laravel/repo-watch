@@ -1,7 +1,21 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, Bell, Clock3, ExternalLink, Filter, GitBranch, RefreshCw, ShieldAlert, Trash2, Upload } from 'lucide-react'
+import {
+  Activity,
+  Bell,
+  BellOff,
+  Clock3,
+  Copy,
+  Download,
+  ExternalLink,
+  Filter,
+  GitBranch,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+  Upload,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,6 +26,8 @@ import {
   bulkImportWatchedRepositories,
   deleteWatchedRepository,
   listDependencyChanges,
+  exportDependencyChanges,
+  downloadTextFile,
   listFleetActivityDigest,
   listPackageAdvisories,
   listRepoWatchNotifications,
@@ -21,6 +37,7 @@ import {
   readFleetDigestLastVisit,
   scanUnhealthyWatchedRepositories,
   scanWatchedRepository,
+  updateWatchedRepositoryPreferences,
   writeFleetDigestLastVisit,
   type BulkImportRepositoryResult,
   type DependencyChange,
@@ -34,6 +51,7 @@ import {
   type RepoWatchNotificationPolicy,
   type ScanHealthSummary,
   type SnapshotRetentionPolicy,
+  type WatchPriority,
   type WatchedRepository,
 } from '@/lib/api/repo-watch'
 import { formatDateTime } from './repoWatchUtils'
@@ -56,6 +74,12 @@ const SCAN_STATUS_LABEL: Record<RepositoryScanStatus, string> = {
   pending: '排队中',
   scanning: '扫描中',
   error: '失败',
+}
+
+const WATCH_PRIORITY_LABEL: Record<WatchPriority, string> = {
+  high: '高优先',
+  normal: '普通',
+  low: '低优先',
 }
 
 const selectClassName =
@@ -89,6 +113,7 @@ export default function RepositoriesPanel() {
   const [digest, setDigest] = useState<FleetActivityDigest | null>(null)
   const [digestLoading, setDigestLoading] = useState(false)
   const [digestCursor, setDigestCursor] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<'csv' | 'summary' | null>(null)
 
   const loadRepositories = useCallback(async () => {
     const response = await listWatchedRepositories()
@@ -258,6 +283,42 @@ export default function RepositoriesPanel() {
     }
   }, [load])
 
+  const handleToggleMute = useCallback(
+    async (repo: WatchedRepository) => {
+      setActionId(repo.id)
+      try {
+        await updateWatchedRepositoryPreferences(repo.id, { muted: !repo.muted })
+        toast.success(repo.muted ? '已恢复通知' : '已静音（仍扫描，不推送高信号）')
+        await load()
+      } catch {
+        toast.error('更新静音状态失败')
+      } finally {
+        setActionId(null)
+      }
+    },
+    [load]
+  )
+
+  const handlePriorityChange = useCallback(
+    async (repo: WatchedRepository, watchPriority: WatchPriority) => {
+      if (repo.watch_priority === watchPriority) {
+        return
+      }
+
+      setActionId(repo.id)
+      try {
+        await updateWatchedRepositoryPreferences(repo.id, { watch_priority: watchPriority })
+        toast.success(`优先级已设为「${WATCH_PRIORITY_LABEL[watchPriority]}」`)
+        await load()
+      } catch {
+        toast.error('更新优先级失败')
+      } finally {
+        setActionId(null)
+      }
+    },
+    [load]
+  )
+
   const handleDelete = useCallback(
     async (id: number) => {
       setActionId(id)
@@ -323,6 +384,49 @@ export default function RepositoriesPanel() {
       })
     },
     []
+  )
+
+  const handleExportChanges = useCallback(
+    async (format: 'csv' | 'summary') => {
+      setExporting(format)
+      try {
+        const payload = await exportDependencyChanges({
+          format,
+          since: digestCursor ?? digest?.since ?? null,
+          repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
+          ecosystem: ecosystemFilter,
+          changeType: changeTypeFilter,
+          limit: 500,
+        })
+
+        if (format === 'csv') {
+          downloadTextFile(payload.filename, payload.content, 'text/csv;charset=utf-8')
+          toast.success(
+            payload.truncated
+              ? `已导出 ${payload.row_count} 条（已截断）`
+              : `已导出 ${payload.row_count} 条 CSV`
+          )
+          return
+        }
+
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(payload.content)
+          toast.success(
+            payload.row_count > 0
+              ? `已复制 ${payload.row_count} 条变更摘要`
+              : '已复制空摘要（该时间窗无变更）'
+          )
+        } else {
+          downloadTextFile(payload.filename, payload.content, 'text/plain;charset=utf-8')
+          toast.success('当前环境不支持剪贴板，已改为下载文本文件')
+        }
+      } catch {
+        toast.error(format === 'csv' ? '导出 CSV 失败' : '复制摘要失败')
+      } finally {
+        setExporting(null)
+      }
+    },
+    [changeTypeFilter, digest, digestCursor, ecosystemFilter, effectiveRepoFilter]
   )
 
   const hasActiveFilters =
@@ -444,7 +548,13 @@ export default function RepositoriesPanel() {
                       className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
                     >
                       <div className="min-w-0">
-                        <div className="truncate font-medium">{row.full_name}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="truncate font-medium">{row.full_name}</div>
+                          {row.muted ? <Badge variant="outline">已静音</Badge> : null}
+                          {row.watch_priority !== 'normal' ? (
+                            <Badge variant="secondary">{WATCH_PRIORITY_LABEL[row.watch_priority]}</Badge>
+                          ) : null}
+                        </div>
                         <div className="text-muted-foreground text-xs">
                           变更 {row.dependency_changes}
                           {row.change_types.added ? ` · +${row.change_types.added}` : ''}
@@ -630,7 +740,7 @@ export default function RepositoriesPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">关注中的仓库</CardTitle>
           <CardDescription>
-            多仓库依赖快照扫描与变更检测。失败仓库排在前面；可单仓或批量重新扫描。
+            多仓库依赖快照扫描与变更检测。失败仓库与高优先级在前；静音仓库仍扫描但不推送高信号通知。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -657,6 +767,10 @@ export default function RepositoriesPanel() {
                     <Badge variant={repo.scan_status === 'error' ? 'destructive' : 'outline'}>
                       {SCAN_STATUS_LABEL[repo.scan_status]}
                     </Badge>
+                    {repo.muted ? <Badge variant="outline">已静音</Badge> : null}
+                    {repo.watch_priority !== 'normal' ? (
+                      <Badge variant="secondary">{WATCH_PRIORITY_LABEL[repo.watch_priority]}</Badge>
+                    ) : null}
                     <Badge variant="secondary">{repo.package_count} 依赖</Badge>
                   </div>
                   {repo.description ? (
@@ -670,7 +784,30 @@ export default function RepositoriesPanel() {
                     ) : null}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    className={selectClassName}
+                    value={repo.watch_priority}
+                    disabled={actionId === repo.id}
+                    aria-label={`${repo.full_name} 关注优先级`}
+                    onChange={event =>
+                      void handlePriorityChange(repo, event.target.value as WatchPriority)
+                    }
+                  >
+                    <option value="high">{WATCH_PRIORITY_LABEL.high}</option>
+                    <option value="normal">{WATCH_PRIORITY_LABEL.normal}</option>
+                    <option value="low">{WATCH_PRIORITY_LABEL.low}</option>
+                  </select>
+                  <Button
+                    variant={repo.muted ? 'secondary' : 'outline'}
+                    size="sm"
+                    loading={actionId === repo.id}
+                    onClick={() => void handleToggleMute(repo)}
+                    title={repo.muted ? '恢复高信号通知' : '静音高信号通知（仍扫描）'}
+                  >
+                    {repo.muted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+                    {repo.muted ? '恢复' : '静音'}
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -779,7 +916,7 @@ export default function RepositoriesPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">最近依赖变更</CardTitle>
           <CardDescription>
-            跨仓库查看清单差异。可用仓库、生态与变更类型筛选，定位 20–30 仓中的噪声。
+            跨仓库查看清单差异。可用仓库、生态与变更类型筛选；导出 CSV / 复制摘要便于周报（沿用当前筛选与 digest 游标窗口）。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -833,6 +970,28 @@ export default function RepositoriesPanel() {
                 清除筛选
               </Button>
             ) : null}
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={changesLoading || exporting !== null}
+                loading={exporting === 'summary'}
+                onClick={() => void handleExportChanges('summary')}
+              >
+                <Copy className="h-4 w-4" />
+                复制摘要
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={changesLoading || exporting !== null}
+                loading={exporting === 'csv'}
+                onClick={() => void handleExportChanges('csv')}
+              >
+                <Download className="h-4 w-4" />
+                导出 CSV
+              </Button>
+            </div>
           </div>
 
           {changesLoading ? (

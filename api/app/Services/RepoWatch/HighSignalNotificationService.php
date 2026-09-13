@@ -31,7 +31,7 @@ class HighSignalNotificationService
      */
     public function notifyForScanChanges(WatchedRepository $repository, mixed $detectedAt): array
     {
-        if (! $this->enabled()) {
+        if (! $this->enabled() || $repository->isMuted()) {
             return [];
         }
 
@@ -81,7 +81,9 @@ class HighSignalNotificationService
 
     public function notifyScanFailure(WatchedRepository $repository, string $errorMessage): ?RepoWatchNotification
     {
-        if (! $this->enabled() || ! (bool) config('services.repo_watch.notify_on_scan_failure', true)) {
+        if (! $this->enabled()
+            || $repository->isMuted()
+            || ! (bool) config('services.repo_watch.notify_on_scan_failure', true)) {
             return null;
         }
 
@@ -118,7 +120,9 @@ class HighSignalNotificationService
      */
     public function notifyForAdvisories(WatchedRepository $repository, Collection $findings): array
     {
-        if (! $this->enabled() || ! (bool) config('services.repo_watch.notify_on_advisory', true)) {
+        if (! $this->enabled()
+            || $repository->isMuted()
+            || ! (bool) config('services.repo_watch.notify_on_advisory', true)) {
             return [];
         }
 

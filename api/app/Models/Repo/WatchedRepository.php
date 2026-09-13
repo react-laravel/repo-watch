@@ -13,11 +13,19 @@ use Illuminate\Support\Carbon;
  * @property string $scan_status
  * @property Carbon|null $last_scanned_at
  * @property Carbon|null $next_scan_at
+ * @property Carbon|null $muted_at
+ * @property string $watch_priority
  * @property array<string, mixed>|null $metadata
  */
 class WatchedRepository extends Model
 {
     use HasFactory;
+
+    public const PRIORITY_HIGH = 'high';
+
+    public const PRIORITY_NORMAL = 'normal';
+
+    public const PRIORITY_LOW = 'low';
 
     public const STATUS_IDLE = 'idle';
 
@@ -42,6 +50,8 @@ class WatchedRepository extends Model
         'last_scan_error',
         'package_count',
         'metadata',
+        'muted_at',
+        'watch_priority',
     ];
 
     protected function casts(): array
@@ -51,8 +61,32 @@ class WatchedRepository extends Model
             'package_count' => 'integer',
             'last_scanned_at' => 'datetime',
             'next_scan_at' => 'datetime',
+            'muted_at' => 'datetime',
             'metadata' => 'array',
         ];
+    }
+
+    public function isMuted(): bool
+    {
+        return $this->muted_at !== null;
+    }
+
+    public function prioritySortKey(): int
+    {
+        return match ($this->watch_priority) {
+            self::PRIORITY_HIGH => 0,
+            self::PRIORITY_LOW => 2,
+            default => 1,
+        };
+    }
+
+    public function digestPriorityBoost(): int
+    {
+        return match ($this->watch_priority) {
+            self::PRIORITY_HIGH => 50,
+            self::PRIORITY_LOW => -10,
+            default => 0,
+        };
     }
 
     public function watchedPackages(): HasMany

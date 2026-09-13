@@ -21,11 +21,13 @@ Route::prefix('repo-watch')->group(function (): void {
     Route::post('/repositories/bulk', [WatchedRepositoryController::class, 'storeBulk']);
     Route::post('/repositories/scan-unhealthy', [WatchedRepositoryController::class, 'scanUnhealthy']);
     Route::get('/repositories/{watchedRepository}', [WatchedRepositoryController::class, 'show']);
+    Route::patch('/repositories/{watchedRepository}', [WatchedRepositoryController::class, 'update']);
     Route::delete('/repositories/{watchedRepository}', [WatchedRepositoryController::class, 'destroy']);
     Route::post('/repositories/{watchedRepository}/scan', [WatchedRepositoryController::class, 'scan']);
     Route::get('/repositories/{watchedRepository}/changes', [WatchedRepositoryController::class, 'changes']);
 
     Route::get('/dependency-changes', [DependencyChangeController::class, 'index']);
+    Route::get('/dependency-changes/export', [DependencyChangeController::class, 'export']);
     Route::get('/advisories', [PackageAdvisoryController::class, 'index']);
     Route::get('/activity-digest', [FleetActivityDigestController::class, 'show']);
 
