@@ -12,6 +12,9 @@ import {
   bulkImportWatchedRepositories,
   scanWatchedRepository,
   scanUnhealthyWatchedRepositories,
+  listRepoWatchNotifications,
+  markRepoWatchNotificationRead,
+  markAllRepoWatchNotificationsRead,
 } from '../repo-watch'
 
 describe('repo-watch API functions', () => {
@@ -46,6 +49,9 @@ describe('repo-watch API functions', () => {
     expect(typeof bulkImportWatchedRepositories).toBe('function')
     expect(typeof scanWatchedRepository).toBe('function')
     expect(typeof scanUnhealthyWatchedRepositories).toBe('function')
+    expect(typeof listRepoWatchNotifications).toBe('function')
+    expect(typeof markRepoWatchNotificationRead).toBe('function')
+    expect(typeof markAllRepoWatchNotificationsRead).toBe('function')
   })
 })
 

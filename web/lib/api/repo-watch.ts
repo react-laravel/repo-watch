@@ -238,3 +238,53 @@ export const listDependencyChanges = (filters: number | DependencyChangeFilters 
 
   return get<DependencyChange[]>(`/repo-watch/dependency-changes?${params.toString()}`)
 }
+
+export type RepoWatchNotificationType = 'dependency_high_signal' | 'scan_failed'
+
+export interface RepoWatchNotification {
+  id: number
+  type: RepoWatchNotificationType
+  severity: string
+  title: string
+  body: string
+  payload?: Record<string, unknown> | null
+  read_at?: string | null
+  webhook_delivered_at?: string | null
+  created_at?: string | null
+  repository?: {
+    id: number
+    full_name: string
+    url: string
+  } | null
+}
+
+export interface RepoWatchNotificationPolicy {
+  enabled: boolean
+  webhook_configured: boolean
+  on_major: boolean
+  on_removed: boolean
+  on_scan_failure: boolean
+}
+
+export interface RepoWatchNotificationsResponse {
+  notifications: RepoWatchNotification[]
+  unread_count: number
+  policy: RepoWatchNotificationPolicy
+}
+
+export const listRepoWatchNotifications = (options?: { limit?: number; unreadOnly?: boolean }) => {
+  const params = new URLSearchParams()
+  params.set('limit', String(options?.limit ?? 30))
+  if (options?.unreadOnly) {
+    params.set('unread_only', '1')
+  }
+
+  return get<RepoWatchNotificationsResponse>(`/repo-watch/notifications?${params.toString()}`)
+}
+
+export const markRepoWatchNotificationRead = (id: number) =>
+  post<RepoWatchNotification>(`/repo-watch/notifications/${id}/read`, {})
+
+export const markAllRepoWatchNotificationsRead = () =>
+  post<{ marked: number }>('/repo-watch/notifications/read-all', {})
+
