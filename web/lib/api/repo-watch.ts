@@ -296,6 +296,8 @@ export interface PackageAdvisorySummary {
   id: number
   source: string
   advisory_id: string
+  ghsa_id?: string | null
+  ghsa_enriched_at?: string | null
   severity: AdvisorySeverity
   summary?: string | null
   aliases?: string[] | null
@@ -330,6 +332,9 @@ export interface PackageAdvisoryPolicy {
   min_severity: string
   notify_on_advisory: boolean
   osv_base_url: string
+  ghsa_enrichment_enabled: boolean
+  ghsa_enrichment_cache_ttl: number
+  ghsa_enrichment_max_per_refresh: number
 }
 
 export interface PackageAdvisoriesResponse {
