@@ -1,0 +1,61 @@
+<?php
+
+namespace App\Models\Repo;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class PackageAdvisory extends Model
+{
+    use HasFactory;
+
+    public const SOURCE_OSV = 'osv';
+
+    public const SEVERITY_CRITICAL = 'critical';
+
+    public const SEVERITY_HIGH = 'high';
+
+    public const SEVERITY_MODERATE = 'moderate';
+
+    public const SEVERITY_LOW = 'low';
+
+    public const SEVERITY_UNKNOWN = 'unknown';
+
+    protected $fillable = [
+        'source',
+        'advisory_id',
+        'ecosystem',
+        'package_name',
+        'severity',
+        'summary',
+        'aliases',
+        'affected_ranges',
+        'fixed_version',
+        'reference_url',
+        'published_at',
+        'withdrawn_at',
+        'last_fetched_at',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'aliases' => 'array',
+            'affected_ranges' => 'array',
+            'published_at' => 'datetime',
+            'withdrawn_at' => 'datetime',
+            'last_fetched_at' => 'datetime',
+        ];
+    }
+
+    public function findings(): HasMany
+    {
+        return $this->hasMany(PackageAdvisoryFinding::class);
+    }
+
+    public function isHighSignal(): bool
+    {
+        return in_array($this->severity, [self::SEVERITY_CRITICAL, self::SEVERITY_HIGH], true);
+    }
+}

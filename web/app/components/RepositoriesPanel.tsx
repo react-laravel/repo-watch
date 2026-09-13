@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, Bell, ExternalLink, Filter, GitBranch, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { Activity, Bell, ExternalLink, Filter, GitBranch, RefreshCw, ShieldAlert, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import {
   bulkImportWatchedRepositories,
   deleteWatchedRepository,
   listDependencyChanges,
+  listPackageAdvisories,
   listRepoWatchNotifications,
   listWatchedRepositories,
   markAllRepoWatchNotificationsRead,
@@ -22,6 +23,8 @@ import {
   type DependencyChange,
   type DependencyChangeType,
   type Ecosystem,
+  type PackageAdvisoryFinding,
+  type PackageAdvisoryPolicy,
   type RepositoryScanStatus,
   type RepoWatchNotification,
   type RepoWatchNotificationPolicy,
@@ -65,6 +68,9 @@ export default function RepositoriesPanel() {
   const [notificationPolicy, setNotificationPolicy] = useState<RepoWatchNotificationPolicy | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
   const [markingNotifications, setMarkingNotifications] = useState(false)
+  const [advisories, setAdvisories] = useState<PackageAdvisoryFinding[]>([])
+  const [advisoryPolicy, setAdvisoryPolicy] = useState<PackageAdvisoryPolicy | null>(null)
+  const [advisoriesLoading, setAdvisoriesLoading] = useState(false)
   const [changes, setChanges] = useState<DependencyChange[]>([])
   const [loading, setLoading] = useState(true)
   const [changesLoading, setChangesLoading] = useState(false)
@@ -92,6 +98,22 @@ export default function RepositoriesPanel() {
     setNotificationPolicy(response.policy)
   }, [])
 
+  const loadAdvisories = useCallback(async () => {
+    setAdvisoriesLoading(true)
+    try {
+      const response = await listPackageAdvisories({
+        limit: 30,
+        repositoryId: repoFilter === 'all' ? null : Number(repoFilter),
+        ecosystem: ecosystemFilter,
+        status: 'open',
+      })
+      setAdvisories(response.findings)
+      setAdvisoryPolicy(response.policy)
+    } finally {
+      setAdvisoriesLoading(false)
+    }
+  }, [repoFilter, ecosystemFilter])
+
   const loadChanges = useCallback(async () => {
     setChangesLoading(true)
     try {
@@ -110,14 +132,14 @@ export default function RepositoriesPanel() {
   const load = useCallback(async () => {
     try {
       await loadRepositories()
-      await Promise.all([loadChanges(), loadNotifications()])
+      await Promise.all([loadChanges(), loadNotifications(), loadAdvisories()])
     } catch (error) {
       console.error('加载仓库监控数据失败', error)
       toast.error('加载仓库列表失败')
     } finally {
       setLoading(false)
     }
-  }, [loadRepositories, loadChanges, loadNotifications])
+  }, [loadRepositories, loadChanges, loadNotifications, loadAdvisories])
 
   useEffect(() => {
     // Initial repository/changes sync.
@@ -311,7 +333,8 @@ export default function RepositoriesPanel() {
           </CardTitle>
           <CardDescription>
             默认只提醒 major 升级、依赖移除
-            {notificationPolicy?.on_scan_failure ? '与扫描失败' : ''}
+            {notificationPolicy?.on_scan_failure ? '、扫描失败' : ''}
+            {notificationPolicy?.on_advisory ? '与高危公告' : ''}
             。可选 webhook：
             {notificationPolicy?.webhook_configured ? '已配置' : '未配置（仅应用内）'}。
           </CardDescription>
@@ -347,8 +370,18 @@ export default function RepositoriesPanel() {
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{notification.title}</span>
-                      <Badge variant={notification.type === 'scan_failed' ? 'destructive' : 'secondary'}>
-                        {notification.type === 'scan_failed' ? '扫描失败' : '依赖变更'}
+                      <Badge
+                        variant={
+                          notification.type === 'scan_failed' || notification.type === 'package_advisory'
+                            ? 'destructive'
+                            : 'secondary'
+                        }
+                      >
+                        {notification.type === 'scan_failed'
+                          ? '扫描失败'
+                          : notification.type === 'package_advisory'
+                            ? '安全公告'
+                            : '依赖变更'}
                       </Badge>
                       {!notification.read_at ? <Badge variant="outline">未读</Badge> : null}
                     </div>
@@ -484,6 +517,75 @@ export default function RepositoriesPanel() {
                     <Trash2 className="h-4 w-4" />
                     删除
                   </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldAlert className="h-4 w-4" />
+            包安全公告
+            {advisories.length > 0 ? <Badge variant="destructive">{advisories.length}</Badge> : null}
+          </CardTitle>
+          <CardDescription>
+            基于最新快照的 lock 版本查询 OSV（不消耗 GitHub 配额）。默认只保留 ≥
+            {advisoryPolicy?.min_severity ?? 'high'} 的命中；critical/high 会进入高信号通知。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {advisoriesLoading ? (
+            <div className="text-muted-foreground text-sm">正在加载安全公告…</div>
+          ) : advisories.length === 0 ? (
+            <EmptyState
+              variant="compact"
+              icon={<ShieldAlert className="h-8 w-8" />}
+              title="暂无开放公告"
+              description="完成仓库扫描后，OSV 会按小时（或扫描后）检查 lock 版本。"
+            />
+          ) : (
+            advisories.map(finding => (
+              <div key={finding.id} className="rounded-lg border p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{finding.package_name}</span>
+                  <Badge variant="outline">{finding.ecosystem}</Badge>
+                  <Badge
+                    variant={
+                      finding.advisory?.severity === 'critical' || finding.advisory?.severity === 'high'
+                        ? 'destructive'
+                        : 'secondary'
+                    }
+                  >
+                    {finding.advisory?.severity ?? 'unknown'}
+                  </Badge>
+                  {finding.repository ? (
+                    <span className="text-muted-foreground">{finding.repository.full_name}</span>
+                  ) : null}
+                </div>
+                <div className="text-muted-foreground mt-1 space-y-1 text-xs">
+                  <div>
+                    版本 {finding.installed_version}
+                    {finding.advisory?.fixed_version ? ` → 修复 ${finding.advisory.fixed_version}` : ''}
+                    {finding.advisory?.advisory_id ? ` · ${finding.advisory.advisory_id}` : ''}
+                  </div>
+                  {finding.advisory?.summary ? <div>{finding.advisory.summary}</div> : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>{formatDateTime(finding.last_seen_at)}</span>
+                    {finding.advisory?.reference_url ? (
+                      <a
+                        href={finding.advisory.reference_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 hover:underline"
+                      >
+                        详情
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             ))

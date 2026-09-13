@@ -14,6 +14,8 @@ class RepoWatchNotification extends Model
 
     public const TYPE_SCAN_FAILED = 'scan_failed';
 
+    public const TYPE_PACKAGE_ADVISORY = 'package_advisory';
+
     public const SEVERITY_HIGH = 'high';
 
     protected $fillable = [

@@ -239,7 +239,7 @@ export const listDependencyChanges = (filters: number | DependencyChangeFilters 
   return get<DependencyChange[]>(`/repo-watch/dependency-changes?${params.toString()}`)
 }
 
-export type RepoWatchNotificationType = 'dependency_high_signal' | 'scan_failed'
+export type RepoWatchNotificationType = 'dependency_high_signal' | 'scan_failed' | 'package_advisory'
 
 export interface RepoWatchNotification {
   id: number
@@ -264,6 +264,7 @@ export interface RepoWatchNotificationPolicy {
   on_major: boolean
   on_removed: boolean
   on_scan_failure: boolean
+  on_advisory: boolean
 }
 
 export interface RepoWatchNotificationsResponse {
@@ -287,4 +288,81 @@ export const markRepoWatchNotificationRead = (id: number) =>
 
 export const markAllRepoWatchNotificationsRead = () =>
   post<{ marked: number }>('/repo-watch/notifications/read-all', {})
+
+export type AdvisorySeverity = 'critical' | 'high' | 'moderate' | 'low' | 'unknown'
+export type AdvisoryFindingStatus = 'open' | 'resolved'
+
+export interface PackageAdvisorySummary {
+  id: number
+  source: string
+  advisory_id: string
+  severity: AdvisorySeverity
+  summary?: string | null
+  aliases?: string[] | null
+  fixed_version?: string | null
+  reference_url?: string | null
+  published_at?: string | null
+}
+
+export interface PackageAdvisoryFinding {
+  id: number
+  watched_repository_id: number
+  repository?: {
+    id: number
+    full_name: string
+    owner: string
+    repo: string
+    url: string
+  } | null
+  ecosystem: Ecosystem
+  manifest_path: string
+  package_name: string
+  installed_version: string
+  status: AdvisoryFindingStatus
+  first_detected_at: string
+  last_seen_at: string
+  resolved_at?: string | null
+  advisory?: PackageAdvisorySummary | null
+}
+
+export interface PackageAdvisoryPolicy {
+  enabled: boolean
+  min_severity: string
+  notify_on_advisory: boolean
+  osv_base_url: string
+}
+
+export interface PackageAdvisoriesResponse {
+  findings: PackageAdvisoryFinding[]
+  policy: PackageAdvisoryPolicy
+}
+
+export interface PackageAdvisoryFilters {
+  limit?: number
+  repositoryId?: number | null
+  ecosystem?: Ecosystem | 'all' | null
+  severity?: AdvisorySeverity | 'all' | null
+  status?: AdvisoryFindingStatus | 'all' | null
+}
+
+export const listPackageAdvisories = (filters: PackageAdvisoryFilters = {}) => {
+  const params = new URLSearchParams()
+  params.set('limit', String(filters.limit ?? 50))
+  if (filters.repositoryId) {
+    params.set('repository_id', String(filters.repositoryId))
+  }
+  if (filters.ecosystem && filters.ecosystem !== 'all') {
+    params.set('ecosystem', filters.ecosystem)
+  }
+  if (filters.severity && filters.severity !== 'all') {
+    params.set('severity', filters.severity)
+  }
+  if (filters.status && filters.status !== 'all') {
+    params.set('status', filters.status)
+  } else if (!filters.status) {
+    params.set('status', 'open')
+  }
+
+  return get<PackageAdvisoriesResponse>(`/repo-watch/advisories?${params.toString()}`)
+}
 

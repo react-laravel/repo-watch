@@ -15,6 +15,7 @@ import {
   listRepoWatchNotifications,
   markRepoWatchNotificationRead,
   markAllRepoWatchNotificationsRead,
+  listPackageAdvisories,
 } from '../repo-watch'
 
 describe('repo-watch API functions', () => {
@@ -52,6 +53,7 @@ describe('repo-watch API functions', () => {
     expect(typeof listRepoWatchNotifications).toBe('function')
     expect(typeof markRepoWatchNotificationRead).toBe('function')
     expect(typeof markAllRepoWatchNotificationsRead).toBe('function')
+    expect(typeof listPackageAdvisories).toBe('function')
   })
 })
 

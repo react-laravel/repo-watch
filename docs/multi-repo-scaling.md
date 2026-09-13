@@ -103,6 +103,7 @@ Default signal set (low noise at 20–30 repos):
 | Major version bumps (`updated` + semver major) | on | `REPO_WATCH_NOTIFY_ON_MAJOR` |
 | Removals | on | `REPO_WATCH_NOTIFY_ON_REMOVED` |
 | Failed scans | on | `REPO_WATCH_NOTIFY_ON_SCAN_FAILURE` |
+| Critical/high package advisories | on | `REPO_WATCH_NOTIFY_ON_ADVISORY` |
 | Adds / minor / patch | off | — |
 
 Enablement / destination:
@@ -118,17 +119,51 @@ API:
 
 UI: **仓库与变更** → **高信号通知** strip.
 
+## Package advisories (OSV)
+
+Repo Watch queries **[OSV](https://osv.dev)** (`https://api.osv.dev`) against **lock-sourced** versions from the latest dependency snapshot per manifest. This path does **not** use the GitHub API budget (important at 20–30 repos).
+
+| Knob | Env | Default |
+| --- | --- | --- |
+| Enable | `REPO_WATCH_ADVISORY_ENABLED` | `true` |
+| Min severity stored | `REPO_WATCH_ADVISORY_MIN_SEVERITY` | `high` |
+| OSV batch size | `REPO_WATCH_ADVISORY_QUERY_BATCH_SIZE` | `80` |
+| OSV base URL | `REPO_WATCH_OSV_BASE_URL` | `https://api.osv.dev` |
+
+Behavior:
+
+- Shared catalog `package_advisories` + per-repo `package_advisory_findings` (`open` / `resolved`)
+- Ecosystems: `npm` → OSV `npm`, `composer` → OSV `Packagist`
+- Skips manifest-only versions (constraint-derived) to avoid false matches
+- Schedule: `repo-watch:refresh-advisories` hourly; also queued after each successful repo scan
+- Critical/high newly-opened findings feed `HighSignalNotificationService` (`package_advisory`)
+
+API / UI:
+
+- `GET /api/repo-watch/advisories?repository_id=&ecosystem=&severity=&status=open&limit=`
+- UI: **仓库与变更** → **包安全公告**
+
+Manual:
+
+```bash
+cd api
+php artisan repo-watch:refresh-advisories --dry-run
+php artisan repo-watch:refresh-advisories --sync
+php artisan repo-watch:refresh-advisories --repository=123 --sync
+```
+
 ## Production scan wiring
 
 - Cron: `deploy/repo-watch-api.cron` runs `schedule:run` every minute.
-- Schedule: `repo-watch:scan-repositories` every 15 minutes; `repo-watch:prune-snapshots` daily (`api/routes/console.php`).
+- Schedule: `repo-watch:scan-repositories` every 15 minutes; `repo-watch:refresh-advisories` hourly; `repo-watch:prune-snapshots` daily (`api/routes/console.php`).
 - Worker: `deploy/supervisor-repo-watch-api.conf` uses `queue:work --timeout=180` (aligned with `ScanWatchedRepository` job timeout).
 - Stuck scans: repositories left in `scanning` longer than `GITHUB_REPO_WATCH_SCANNING_STALE_MINUTES` (default 20) are recovered to `pending` on the next scheduler tick.
+- Egress: API workers must reach `api.osv.dev` (same class of outbound access as npm/Packagist).
 
 ## Follow-ups (not in this slice)
 
-- Package advisories / vulnerability signals alongside version diffs.
 - Auto-select / suggest packages to watch from the latest snapshot.
 - Per-user or org-level GitHub App installation instead of a single PAT.
 - Deduplicate scans when many users watch the same public repository.
 - Richer notification channels (email via DogeOW identity) once a durable Notifiable user exists.
+- Optional GHSA GraphQL enrichment (would share the GitHub rate-limit budget — keep secondary).
