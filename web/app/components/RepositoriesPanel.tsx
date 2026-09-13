@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Bell, ExternalLink, Filter, GitBranch, RefreshCw, ShieldAlert, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -98,12 +98,21 @@ export default function RepositoriesPanel() {
     setNotificationPolicy(response.policy)
   }, [])
 
+  // Derive a valid filter so deleting the selected repo does not need setState-in-effect.
+  const effectiveRepoFilter = useMemo(() => {
+    if (repoFilter === 'all') {
+      return 'all'
+    }
+
+    return repositories.some(repo => String(repo.id) === repoFilter) ? repoFilter : 'all'
+  }, [repositories, repoFilter])
+
   const loadAdvisories = useCallback(async () => {
     setAdvisoriesLoading(true)
     try {
       const response = await listPackageAdvisories({
         limit: 30,
-        repositoryId: repoFilter === 'all' ? null : Number(repoFilter),
+        repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
         ecosystem: ecosystemFilter,
         status: 'open',
       })
@@ -112,14 +121,14 @@ export default function RepositoriesPanel() {
     } finally {
       setAdvisoriesLoading(false)
     }
-  }, [repoFilter, ecosystemFilter])
+  }, [effectiveRepoFilter, ecosystemFilter])
 
   const loadChanges = useCallback(async () => {
     setChangesLoading(true)
     try {
       const recentChanges = await listDependencyChanges({
         limit: 50,
-        repositoryId: repoFilter === 'all' ? null : Number(repoFilter),
+        repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
         ecosystem: ecosystemFilter,
         changeType: changeTypeFilter,
       })
@@ -127,7 +136,7 @@ export default function RepositoriesPanel() {
     } finally {
       setChangesLoading(false)
     }
-  }, [repoFilter, ecosystemFilter, changeTypeFilter])
+  }, [effectiveRepoFilter, ecosystemFilter, changeTypeFilter])
 
   const load = useCallback(async () => {
     try {
@@ -146,14 +155,6 @@ export default function RepositoriesPanel() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load])
-
-  useEffect(() => {
-    if (loading) return
-    // Keep selected repository valid after deletes.
-    if (repoFilter !== 'all' && !repositories.some(repo => String(repo.id) === repoFilter)) {
-      setRepoFilter('all')
-    }
-  }, [loading, repositories, repoFilter])
 
   const handleImport = useCallback(async () => {
     const lines = importText
@@ -270,7 +271,7 @@ export default function RepositoriesPanel() {
   }, [])
 
   const hasActiveFilters =
-    repoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
+    effectiveRepoFilter !== 'all' || ecosystemFilter !== 'all' || changeTypeFilter !== 'all'
   const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
 
   if (loading) {
@@ -605,7 +606,7 @@ export default function RepositoriesPanel() {
             <Filter className="text-muted-foreground h-3.5 w-3.5" />
             <select
               className={selectClassName}
-              value={repoFilter}
+              value={effectiveRepoFilter}
               onChange={event => setRepoFilter(event.target.value)}
               disabled={changesLoading}
             >
