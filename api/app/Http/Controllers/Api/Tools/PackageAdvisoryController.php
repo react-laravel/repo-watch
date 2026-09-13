@@ -112,6 +112,8 @@ class PackageAdvisoryController extends Controller
                 'id' => $advisory->id,
                 'source' => $advisory->source,
                 'advisory_id' => $advisory->advisory_id,
+                'ghsa_id' => $advisory->ghsa_id,
+                'ghsa_enriched_at' => $advisory->ghsa_enriched_at,
                 'severity' => $advisory->severity,
                 'summary' => $advisory->summary,
                 'aliases' => $advisory->aliases,
@@ -127,7 +129,10 @@ class PackageAdvisoryController extends Controller
      *   enabled: bool,
      *   min_severity: string,
      *   notify_on_advisory: bool,
-     *   osv_base_url: string
+     *   osv_base_url: string,
+     *   ghsa_enrichment_enabled: bool,
+     *   ghsa_enrichment_cache_ttl: int,
+     *   ghsa_enrichment_max_per_refresh: int
      * }
      */
     private function policy(): array
@@ -137,6 +142,9 @@ class PackageAdvisoryController extends Controller
             'min_severity' => (string) config('services.repo_watch.advisory_min_severity', 'high'),
             'notify_on_advisory' => (bool) config('services.repo_watch.notify_on_advisory', true),
             'osv_base_url' => (string) config('services.repo_watch.osv_base_url', 'https://api.osv.dev'),
+            'ghsa_enrichment_enabled' => (bool) config('services.repo_watch.ghsa_enrichment_enabled', false),
+            'ghsa_enrichment_cache_ttl' => (int) config('services.repo_watch.ghsa_enrichment_cache_ttl', 86400),
+            'ghsa_enrichment_max_per_refresh' => (int) config('services.repo_watch.ghsa_enrichment_max_per_refresh', 20),
         ];
     }
 }

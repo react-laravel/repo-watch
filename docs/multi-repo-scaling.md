@@ -119,7 +119,7 @@ API:
 
 UI: **仓库与变更** → **高信号通知** strip.
 
-## Package advisories (OSV)
+## Package advisories (OSV + optional GHSA)
 
 Repo Watch queries **[OSV](https://osv.dev)** (`https://api.osv.dev`) against **lock-sourced** versions from the latest dependency snapshot per manifest. This path does **not** use the GitHub API budget (important at 20–30 repos).
 
@@ -129,6 +129,9 @@ Repo Watch queries **[OSV](https://osv.dev)** (`https://api.osv.dev`) against **
 | Min severity stored | `REPO_WATCH_ADVISORY_MIN_SEVERITY` | `high` |
 | OSV batch size | `REPO_WATCH_ADVISORY_QUERY_BATCH_SIZE` | `80` |
 | OSV base URL | `REPO_WATCH_OSV_BASE_URL` | `https://api.osv.dev` |
+| GHSA enrichment | `REPO_WATCH_GHSA_ENRICHMENT_ENABLED` | `false` |
+| GHSA cache TTL (s) | `REPO_WATCH_GHSA_ENRICHMENT_CACHE_TTL` | `86400` |
+| GHSA max fetches / refresh | `REPO_WATCH_GHSA_ENRICHMENT_MAX_PER_REFRESH` | `20` |
 
 Behavior:
 
@@ -138,10 +141,30 @@ Behavior:
 - Schedule: `repo-watch:refresh-advisories` hourly; also queued after each successful repo scan
 - Critical/high newly-opened findings feed `HighSignalNotificationService` (`package_advisory`)
 
+### GHSA secondary enrichment (optional)
+
+When `REPO_WATCH_GHSA_ENRICHMENT_ENABLED=true` **and** `GITHUB_TOKEN`/`GITHUB_PAT` is set, after each OSV upsert Repo Watch may call GitHub’s Global Advisories REST API (`GET /advisories/{ghsa_id}`) to attach:
+
+- canonical `ghsa_id`
+- GitHub severity cross-check
+- `html_url` permalink
+- extra identifiers into `aliases`
+
+Guards so 20–30 repos do not burn the PAT:
+
+- Skipped entirely without a token (OSV continues to work)
+- Respects `GithubRateLimitGuard` floor (`GITHUB_REPO_WATCH_RATE_LIMIT_FLOOR`)
+- Response cache keyed by GHSA id (`REPO_WATCH_GHSA_ENRICHMENT_CACHE_TTL`) — cache hits re-apply enrichment after OSV upserts without spending PAT
+- Hard cap of N **network** fetches per refresh (`REPO_WATCH_GHSA_ENRICHMENT_MAX_PER_REFRESH`, default 20)
+- `ghsa_enriched_at` records last successful apply (signal for UI / ops)
+
+OSV remains the primary path; GHSA never blocks advisory detection.
+
 API / UI:
 
 - `GET /api/repo-watch/advisories?repository_id=&ecosystem=&severity=&status=open&limit=`
-- UI: **仓库与变更** → **包安全公告**
+- Policy includes `ghsa_enrichment_*` flags
+- UI: **仓库与变更** → **包安全公告** (shows GHSA badge when enriched)
 
 Manual:
 
@@ -180,12 +203,13 @@ Run `php artisan migrate` once on the tip of the stack (or after each merge — 
 | `2026_09_13_000002_create_repo_watch_notifications_table` | #5 | High-signal notifications |
 | `2026_09_13_000003_create_package_advisories_tables` | #6 | OSV advisory catalog + findings |
 | `2026_09_13_000004_create_failed_jobs_table` | #7 | Queue failure recording |
+| `2026_09_13_000005_add_ghsa_enrichment_to_package_advisories` | #9 | Optional GHSA id + enriched_at |
 
-Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → CI/mergeability follow-up**.
+Merge order for the stack: **#1 → #2 → #3 → #4 → #5 → #6 → #7 → #8 → this (GHSA enrichment)**.
 
 ## Go-live checklist (20–30 repos)
 
-Use this path on `https://repo-watch.dogeow.com` after merging the stacked PRs (`#1`→`#7`→CI fix).
+Use this path on `https://repo-watch.dogeow.com` after merging the stacked PRs (`#1`→`#8`→GHSA enrichment).
 
 ### 1. Infrastructure
 
@@ -248,5 +272,4 @@ sudo -u www-data php artisan queue:failed     # should be empty / table exists
 - Per-user or org-level GitHub App installation instead of a single PAT.
 - Full cross-user snapshot reuse (beyond the 120s GitHub fetch cache).
 - Richer notification channels (email via DogeOW identity) once a durable Notifiable user exists.
-- Optional GHSA GraphQL enrichment (would share the GitHub rate-limit budget — keep secondary).
 - PR CI runs on GitHub-hosted runners; production deploy remains self-hosted on `main`.

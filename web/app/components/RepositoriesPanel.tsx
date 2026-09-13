@@ -533,8 +533,11 @@ export default function RepositoriesPanel() {
             {advisories.length > 0 ? <Badge variant="destructive">{advisories.length}</Badge> : null}
           </CardTitle>
           <CardDescription>
-            基于最新快照的 lock 版本查询 OSV（不消耗 GitHub 配额）。默认只保留 ≥
-            {advisoryPolicy?.min_severity ?? 'high'} 的命中；critical/high 会进入高信号通知。
+            基于最新快照的 lock 版本查询 OSV（不消耗 GitHub 配额）
+            {advisoryPolicy?.ghsa_enrichment_enabled
+              ? '；可选 GHSA 二次富化在有 PAT 且未触达速率地板时补充 GHSA id / 严重度 / 链接'
+              : ''}
+            。默认只保留 ≥{advisoryPolicy?.min_severity ?? 'high'} 的命中；critical/high 会进入高信号通知。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -562,6 +565,9 @@ export default function RepositoriesPanel() {
                   >
                     {finding.advisory?.severity ?? 'unknown'}
                   </Badge>
+                  {finding.advisory?.ghsa_enriched_at ? (
+                    <Badge variant="outline">GHSA</Badge>
+                  ) : null}
                   {finding.repository ? (
                     <span className="text-muted-foreground">{finding.repository.full_name}</span>
                   ) : null}
@@ -571,6 +577,10 @@ export default function RepositoriesPanel() {
                     版本 {finding.installed_version}
                     {finding.advisory?.fixed_version ? ` → 修复 ${finding.advisory.fixed_version}` : ''}
                     {finding.advisory?.advisory_id ? ` · ${finding.advisory.advisory_id}` : ''}
+                    {finding.advisory?.ghsa_id &&
+                    finding.advisory.ghsa_id.toLowerCase() !== finding.advisory.advisory_id.toLowerCase()
+                      ? ` · ${finding.advisory.ghsa_id}`
+                      : ''}
                   </div>
                   {finding.advisory?.summary ? <div>{finding.advisory.summary}</div> : null}
                   <div className="flex flex-wrap items-center gap-2">

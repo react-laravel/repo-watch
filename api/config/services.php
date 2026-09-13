@@ -65,6 +65,9 @@ return [
         'advisory_min_severity' => env('REPO_WATCH_ADVISORY_MIN_SEVERITY', 'high'),
         'advisory_query_batch_size' => (int) env('REPO_WATCH_ADVISORY_QUERY_BATCH_SIZE', 80),
         'osv_base_url' => env('REPO_WATCH_OSV_BASE_URL', 'https://api.osv.dev'),
+        'ghsa_enrichment_enabled' => filter_var(env('REPO_WATCH_GHSA_ENRICHMENT_ENABLED', false), FILTER_VALIDATE_BOOL),
+        'ghsa_enrichment_cache_ttl' => (int) env('REPO_WATCH_GHSA_ENRICHMENT_CACHE_TTL', 86400),
+        'ghsa_enrichment_max_per_refresh' => (int) env('REPO_WATCH_GHSA_ENRICHMENT_MAX_PER_REFRESH', 20),
     ],
 
 ];
