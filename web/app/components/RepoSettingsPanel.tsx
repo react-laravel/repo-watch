@@ -73,7 +73,8 @@ export default function RepoSettingsPanel({
         <CardContent>
           <select
             className="border-input bg-background w-full h-9 rounded-md border px-3 text-sm"
-            value={selectedRepoKey}
+            aria-label="设置中的仓库"
+            value={repoOptionsFiltered.includes(selectedRepoKey) ? selectedRepoKey : ''}
             onChange={event => onRepoKeyChange(event.target.value)}
           >
             <option value="">选择一个仓库</option>
@@ -83,6 +84,7 @@ export default function RepoSettingsPanel({
               </option>
             ))}
           </select>
+          {repoOptionsFiltered.length === 0 && <p className="text-muted-foreground mt-3 text-sm">还没有可设置的仓库。添加仓库并保存关注的依赖后，可在这里调整。</p>}
         </CardContent>
       </Card>
 

@@ -2,18 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Activity,
   Bell,
-  BellOff,
   Clock3,
   Copy,
   Download,
   ExternalLink,
   Filter,
-  GitBranch,
   RefreshCw,
   ShieldAlert,
-  Trash2,
   Upload,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -47,7 +43,6 @@ import {
   type PackageAdvisoryFinding,
   type PackageAdvisoryPolicy,
   type AdvisorySeverity,
-  type RepositoryScanStatus,
   type RepoWatchNotification,
   type RepoWatchNotificationPolicy,
   type ScanHealthSummary,
@@ -64,6 +59,8 @@ import {
 } from '@/lib/repo-watch-first-run'
 import { formatDateTime } from './repoWatchUtils'
 import FirstRunChecklistCard from './FirstRunChecklistCard'
+import RepositoryListCard from './RepositoryListCard'
+import ScanHealthOverview from './ScanHealthOverview'
 
 const CHANGE_TYPE_LABEL: Record<DependencyChangeType, string> = {
   added: '新增',
@@ -76,13 +73,6 @@ const IMPORT_STATUS_LABEL: Record<BulkImportRepositoryResult['status'], string> 
   already_watched: '已存在',
   duplicate_in_request: '请求重复',
   invalid: '无效',
-}
-
-const SCAN_STATUS_LABEL: Record<RepositoryScanStatus, string> = {
-  idle: '正常',
-  pending: '排队中',
-  scanning: '扫描中',
-  error: '失败',
 }
 
 const WATCH_PRIORITY_LABEL: Record<WatchPriority, string> = {
@@ -111,7 +101,9 @@ export default function RepositoriesPanel() {
   const [health, setHealth] = useState<ScanHealthSummary | null>(null)
   const [retention, setRetention] = useState<SnapshotRetentionPolicy | null>(null)
   const [notifications, setNotifications] = useState<RepoWatchNotification[]>([])
-  const [notificationPolicy, setNotificationPolicy] = useState<RepoWatchNotificationPolicy | null>(null)
+  const [notificationPolicy, setNotificationPolicy] = useState<RepoWatchNotificationPolicy | null>(
+    null
+  )
   const [unreadCount, setUnreadCount] = useState(0)
   const [markingNotifications, setMarkingNotifications] = useState(false)
   const [advisories, setAdvisories] = useState<PackageAdvisoryFinding[]>([])
@@ -316,7 +308,9 @@ export default function RepositoriesPanel() {
     async (repo: WatchedRepository) => {
       setActionId(repo.id)
       try {
-        await updateWatchedRepositoryPreferences(repo.id, { muted: !repo.muted })
+        await updateWatchedRepositoryPreferences(repo.id, {
+          muted: !repo.muted,
+        })
         toast.success(repo.muted ? '已恢复通知' : '已静音（仍扫描，不推送高信号）')
         await load()
       } catch {
@@ -336,7 +330,9 @@ export default function RepositoriesPanel() {
 
       setActionId(repo.id)
       try {
-        await updateWatchedRepositoryPreferences(repo.id, { watch_priority: watchPriority })
+        await updateWatchedRepositoryPreferences(repo.id, {
+          watch_priority: watchPriority,
+        })
         toast.success(`优先级已设为「${WATCH_PRIORITY_LABEL[watchPriority]}」`)
         await load()
       } catch {
@@ -398,7 +394,10 @@ export default function RepositoriesPanel() {
   }, [])
 
   const focusSection = useCallback(
-    (section: 'notifications' | 'advisories' | 'changes' | 'import' | 'digest', repositoryId?: number) => {
+    (
+      section: 'notifications' | 'advisories' | 'changes' | 'import' | 'digest',
+      repositoryId?: number
+    ) => {
       if (repositoryId) {
         setRepoFilter(String(repositoryId))
       }
@@ -407,7 +406,9 @@ export default function RepositoriesPanel() {
       }
       requestAnimationFrame(() => {
         document.getElementById(`repo-watch-${section}`)?.scrollIntoView({
-          behavior: 'smooth',
+          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            ? 'auto'
+            : 'smooth',
           block: 'start',
         })
       })
@@ -476,33 +477,41 @@ export default function RepositoriesPanel() {
     changeTypeFilter !== 'all' ||
     includeMuted
   const hasAdvisoryFilters = severityFilter !== 'all' || hasActiveFilters
-  const needsAttention = (health?.failing ?? 0) + (health?.never_scanned ?? 0) > 0
   const firstRunChecklist = useMemo(
     () =>
       buildFirstRunChecklist({
         repositoryCount: health?.total ?? repositories.length,
         neverScanned: health?.never_scanned ?? 0,
-        pendingOrScanning:
-          (health?.by_status.pending ?? 0) + (health?.by_status.scanning ?? 0),
+        pendingOrScanning: (health?.by_status.pending ?? 0) + (health?.by_status.scanning ?? 0),
         digestOpened: firstRunDigestOpened,
         hasDigestLastVisit: Boolean(digestCursor),
         dismissed: firstRunDismissed,
       }),
-    [
-      digestCursor,
-      firstRunDigestOpened,
-      firstRunDismissed,
-      health,
-      repositories.length,
-    ]
+    [digestCursor, firstRunDigestOpened, firstRunDismissed, health, repositories.length]
   )
 
   if (loading) {
-    return <div className="text-muted-foreground text-sm">正在加载仓库监控…</div>
+    return (
+      <div role="status" className="space-y-4">
+        <p className="text-muted-foreground text-sm">正在加载仓库监控…</p>
+        <div aria-hidden className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {[0, 1, 2].map(key => (
+            <div
+              key={key}
+              className="bg-muted h-28 animate-pulse rounded-2xl motion-reduce:animate-none"
+            />
+          ))}
+        </div>
+        <div
+          aria-hidden
+          className="bg-muted h-56 animate-pulse rounded-2xl motion-reduce:animate-none"
+        />
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-6">
       <FirstRunChecklistCard
         checklist={firstRunChecklist}
         rescanning={rescanningUnhealthy}
@@ -512,59 +521,58 @@ export default function RepositoriesPanel() {
         onDismiss={handleDismissFirstRun}
       />
 
-      {health ? (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="h-4 w-4" />
-              扫描健康
-            </CardTitle>
-            <CardDescription>
-              全局扫描状态一览。失败或从未扫描的仓库可一键重新排队。
-              {retention
-                ? ` 快照保留：每清单最近 ${retention.snapshot_keep} 份；变更保留 ${retention.change_retention_days} 天。`
-                : null}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2 text-xs">
-              <Badge variant="secondary">合计 {health.total}</Badge>
-              <Badge variant="outline">正常 {health.by_status.idle}</Badge>
-              <Badge variant="outline">排队 {health.by_status.pending}</Badge>
-              <Badge variant="outline">扫描中 {health.by_status.scanning}</Badge>
-              <Badge variant={health.failing > 0 ? 'destructive' : 'outline'}>
-                失败 {health.failing}
-              </Badge>
-              <Badge variant={health.never_scanned > 0 ? 'secondary' : 'outline'}>
-                未扫描 {health.never_scanned}
-              </Badge>
-              <Badge variant={health.overdue > 0 ? 'secondary' : 'outline'}>
-                逾期 {health.overdue}
-              </Badge>
-            </div>
-            {needsAttention ? (
-              <Button
-                variant="outline"
-                size="sm"
-                loading={rescanningUnhealthy}
-                onClick={() => void handleRescanUnhealthy()}
-              >
-                <RefreshCw className="h-4 w-4" />
-                重新扫描失败 / 未扫描
-              </Button>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
+      {health && (
+        <ScanHealthOverview
+          health={health}
+          retention={retention}
+          rescanning={rescanningUnhealthy}
+          onRescan={() => void handleRescanUnhealthy()}
+        />
+      )}
 
-      <Card id="repo-watch-digest">
+      <nav aria-label="仓库监控区块" className="flex flex-wrap gap-2 text-xs">
+        {[
+          ['repositories', '关注仓库'],
+          ['digest', '最近活动'],
+          ['changes', '依赖变更'],
+          ['advisories', '安全公告'],
+          ['notifications', '通知'],
+          ['import', '批量导入'],
+        ].map(([id, label]) => (
+          <a
+            key={id}
+            href={`#repo-watch-${id}`}
+            className="bg-card hover:bg-muted rounded-full border px-3 py-2 transition-colors"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+
+      <RepositoryListCard
+        repositories={repositories}
+        actionId={actionId}
+        onPriorityChange={(repo, priority) => void handlePriorityChange(repo, priority)}
+        onToggleMute={repo => void handleToggleMute(repo)}
+        onScan={id => void handleScan(id)}
+        onDelete={id => void handleDelete(id)}
+        onImport={() => focusSection('import')}
+      />
+
+      <Card id="repo-watch-digest" className="scroll-mt-6 min-w-0 overflow-hidden rounded-2xl">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Clock3 className="h-4 w-4" />
             最近活动
-            {digest && digest.totals.dependency_changes + digest.totals.notifications + digest.totals.advisories_new > 0 ? (
+            {digest &&
+            digest.totals.dependency_changes +
+              digest.totals.notifications +
+              digest.totals.advisories_new >
+              0 ? (
               <Badge variant="secondary">
-                {digest.totals.dependency_changes + digest.totals.notifications + digest.totals.advisories_new}
+                {digest.totals.dependency_changes +
+                  digest.totals.notifications +
+                  digest.totals.advisories_new}
               </Badge>
             ) : null}
           </CardTitle>
@@ -572,7 +580,8 @@ export default function RepositoriesPanel() {
             {digestCursor
               ? `自上次查看（${formatDateTime(digestCursor)}）起的舰队摘要`
               : `默认最近 ${digest?.policy.default_hours ?? 24} 小时；下次打开将使用本地 last-visit 游标`}
-            。顶部展示关注中 / 活跃 / 静音仓数，以及活跃 vs 静音活动拆分。仅查本地库，不消耗 GitHub 配额。
+            。顶部展示关注中 / 活跃 / 静音仓数，以及活跃 vs 静音活动拆分。仅查本地库，不消耗 GitHub
+            配额。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -606,7 +615,9 @@ export default function RepositoriesPanel() {
                   className="inline-flex"
                   onClick={() => focusSection('notifications')}
                 >
-                  <Badge variant={digest.totals.unread_notifications > 0 ? 'destructive' : 'outline'}>
+                  <Badge
+                    variant={digest.totals.unread_notifications > 0 ? 'destructive' : 'outline'}
+                  >
                     通知 {digest.totals.notifications}
                     {digest.totals.unread_notifications > 0
                       ? ` · ${digest.totals.unread_notifications} 未读`
@@ -643,7 +654,9 @@ export default function RepositoriesPanel() {
                           <div className="truncate font-medium">{row.full_name}</div>
                           {row.muted ? <Badge variant="outline">已静音</Badge> : null}
                           {row.watch_priority !== 'normal' ? (
-                            <Badge variant="secondary">{WATCH_PRIORITY_LABEL[row.watch_priority]}</Badge>
+                            <Badge variant="secondary">
+                              {WATCH_PRIORITY_LABEL[row.watch_priority]}
+                            </Badge>
                           ) : null}
                         </div>
                         <div className="text-muted-foreground text-xs">
@@ -697,7 +710,10 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
-      <Card id="repo-watch-notifications">
+      <Card
+        id="repo-watch-notifications"
+        className="scroll-mt-6 min-w-0 overflow-hidden rounded-2xl"
+      >
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Bell className="h-4 w-4" />
@@ -745,7 +761,8 @@ export default function RepositoriesPanel() {
                       <span className="font-medium">{notification.title}</span>
                       <Badge
                         variant={
-                          notification.type === 'scan_failed' || notification.type === 'package_advisory'
+                          notification.type === 'scan_failed' ||
+                          notification.type === 'package_advisory'
                             ? 'destructive'
                             : 'secondary'
                         }
@@ -780,7 +797,7 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
-      <Card id="repo-watch-import">
+      <Card id="repo-watch-import" className="scroll-mt-6 min-w-0 overflow-hidden rounded-2xl">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">批量导入仓库</CardTitle>
           <CardDescription>
@@ -789,6 +806,7 @@ export default function RepositoriesPanel() {
         </CardHeader>
         <CardContent className="space-y-3">
           <textarea
+            aria-label="批量导入仓库地址"
             value={importText}
             onChange={event => setImportText(event.target.value)}
             rows={6}
@@ -814,7 +832,10 @@ export default function RepositoriesPanel() {
             <div className="space-y-2 rounded-lg border p-3 text-sm">
               <div className="font-medium">导入结果</div>
               {importResults.map((result, index) => (
-                <div key={`${result.input}-${index}`} className="flex flex-wrap items-center gap-2 text-xs">
+                <div
+                  key={`${result.input}-${index}`}
+                  className="flex flex-wrap items-center gap-2 text-xs"
+                >
                   <Badge variant={result.status === 'created' ? 'secondary' : 'outline'}>
                     {IMPORT_STATUS_LABEL[result.status]}
                   </Badge>
@@ -827,117 +848,23 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">关注中的仓库</CardTitle>
-          <CardDescription>
-            多仓库依赖快照扫描与变更检测。失败仓库与高优先级在前；静音仓库仍扫描但不推送高信号通知。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {repositories.length === 0 ? (
-            <EmptyState
-              icon={<GitBranch className="h-8 w-8" />}
-              title="还没有关注仓库"
-              description="在上方粘贴 owner/repo 列表批量导入，或通过「添加仓库」保存依赖。"
-            />
-          ) : (
-            repositories.map(repo => (
-              <div key={repo.id} className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-4">
-                <div className="min-w-0 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <a
-                      href={repo.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 font-medium hover:underline"
-                    >
-                      {repo.full_name}
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                    <Badge variant={repo.scan_status === 'error' ? 'destructive' : 'outline'}>
-                      {SCAN_STATUS_LABEL[repo.scan_status]}
-                    </Badge>
-                    {repo.muted ? <Badge variant="outline">已静音</Badge> : null}
-                    {repo.watch_priority !== 'normal' ? (
-                      <Badge variant="secondary">{WATCH_PRIORITY_LABEL[repo.watch_priority]}</Badge>
-                    ) : null}
-                    <Badge variant="secondary">{repo.package_count} 依赖</Badge>
-                  </div>
-                  {repo.description ? (
-                    <p className="text-muted-foreground text-sm">{repo.description}</p>
-                  ) : null}
-                  <div className="text-muted-foreground space-y-1 text-xs">
-                    <div>上次扫描：{formatDateTime(repo.last_scanned_at)}</div>
-                    <div>下次扫描：{formatDateTime(repo.next_scan_at)}</div>
-                    {repo.last_scan_error ? (
-                      <div className="text-destructive">错误：{repo.last_scan_error}</div>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    className={selectClassName}
-                    value={repo.watch_priority}
-                    disabled={actionId === repo.id}
-                    aria-label={`${repo.full_name} 关注优先级`}
-                    onChange={event =>
-                      void handlePriorityChange(repo, event.target.value as WatchPriority)
-                    }
-                  >
-                    <option value="high">{WATCH_PRIORITY_LABEL.high}</option>
-                    <option value="normal">{WATCH_PRIORITY_LABEL.normal}</option>
-                    <option value="low">{WATCH_PRIORITY_LABEL.low}</option>
-                  </select>
-                  <Button
-                    variant={repo.muted ? 'secondary' : 'outline'}
-                    size="sm"
-                    loading={actionId === repo.id}
-                    onClick={() => void handleToggleMute(repo)}
-                    title={repo.muted ? '恢复高信号通知' : '静音高信号通知（仍扫描）'}
-                  >
-                    {repo.muted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
-                    {repo.muted ? '恢复' : '静音'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    loading={actionId === repo.id}
-                    onClick={() => void handleScan(repo.id)}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    扫描
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    loading={actionId === repo.id}
-                    onClick={() => void handleDelete(repo.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    删除
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
-
-      <Card id="repo-watch-advisories">
+      <Card id="repo-watch-advisories" className="scroll-mt-6 min-w-0 overflow-hidden rounded-2xl">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <ShieldAlert className="h-4 w-4" />
             包安全公告
-            {advisories.length > 0 ? <Badge variant="destructive">{advisories.length}</Badge> : null}
+            {advisories.length > 0 ? (
+              <Badge variant="destructive">{advisories.length}</Badge>
+            ) : null}
           </CardTitle>
           <CardDescription>
             基于最新快照的 lock 版本查询 OSV（不消耗 GitHub 配额）
             {advisoryPolicy?.ghsa_enrichment_enabled
               ? '；可选 GHSA 二次富化在有 PAT 且未触达速率地板时补充 GHSA id / 严重度 / 链接'
               : ''}
-            。默认只保留 ≥{advisoryPolicy?.min_severity ?? 'high'} 的命中；可用严重度筛选聚焦高危；critical/high
-            会进入高信号通知。沿用下方变更区的仓库 / 生态 / 静音筛选。
+            。默认只保留 ≥{advisoryPolicy?.min_severity ?? 'high'}{' '}
+            的命中；可用严重度筛选聚焦高危；critical/high 会进入高信号通知。沿用下方变更区的仓库 /
+            生态 / 静音筛选。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -989,7 +916,8 @@ export default function RepositoriesPanel() {
                   <Badge variant="outline">{finding.ecosystem}</Badge>
                   <Badge
                     variant={
-                      finding.advisory?.severity === 'critical' || finding.advisory?.severity === 'high'
+                      finding.advisory?.severity === 'critical' ||
+                      finding.advisory?.severity === 'high'
                         ? 'destructive'
                         : 'secondary'
                     }
@@ -1009,10 +937,13 @@ export default function RepositoriesPanel() {
                 <div className="text-muted-foreground mt-1 space-y-1 text-xs">
                   <div>
                     版本 {finding.installed_version}
-                    {finding.advisory?.fixed_version ? ` → 修复 ${finding.advisory.fixed_version}` : ''}
+                    {finding.advisory?.fixed_version
+                      ? ` → 修复 ${finding.advisory.fixed_version}`
+                      : ''}
                     {finding.advisory?.advisory_id ? ` · ${finding.advisory.advisory_id}` : ''}
                     {finding.advisory?.ghsa_id &&
-                    finding.advisory.ghsa_id.toLowerCase() !== finding.advisory.advisory_id.toLowerCase()
+                    finding.advisory.ghsa_id.toLowerCase() !==
+                      finding.advisory.advisory_id.toLowerCase()
                       ? ` · ${finding.advisory.ghsa_id}`
                       : ''}
                   </div>
@@ -1038,7 +969,7 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
-      <Card id="repo-watch-changes">
+      <Card id="repo-watch-changes" className="scroll-mt-6 min-w-0 overflow-hidden rounded-2xl">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">最近依赖变更</CardTitle>
           <CardDescription>
@@ -1051,6 +982,7 @@ export default function RepositoriesPanel() {
             <Filter className="text-muted-foreground h-3.5 w-3.5" />
             <select
               className={selectClassName}
+              aria-label="变更与公告仓库"
               value={effectiveRepoFilter}
               onChange={event => setRepoFilter(event.target.value)}
               disabled={changesLoading}
@@ -1065,6 +997,7 @@ export default function RepositoriesPanel() {
             </select>
             <select
               className={selectClassName}
+              aria-label="变更与公告生态"
               value={ecosystemFilter}
               onChange={event => setEcosystemFilter(event.target.value as EcosystemFilter)}
               disabled={changesLoading}
@@ -1075,6 +1008,7 @@ export default function RepositoriesPanel() {
             </select>
             <select
               className={selectClassName}
+              aria-label="依赖变更类型"
               value={changeTypeFilter}
               onChange={event => setChangeTypeFilter(event.target.value as ChangeTypeFilter)}
               disabled={changesLoading}

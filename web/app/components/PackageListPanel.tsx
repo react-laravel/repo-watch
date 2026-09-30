@@ -51,17 +51,22 @@ export default function PackageListPanel({
   onRefresh,
   onCancelWatch,
 }: PackageListPanelProps) {
+  const updateLabels = { major: '大版本更新', minor: '功能版本更新', patch: '修复版本更新' }
   const isRepoFiltered = selectedRepoKey !== 'all'
 
   const renderPackageCard = (item: WatchedPackage) => (
-    <div key={item.id} className="rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
+    <div key={item.id} className="bg-card min-w-0 rounded-2xl border p-4 shadow-sm sm:p-5">
+      <div className="flex min-w-0 flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="font-medium">{item.publisher_display_name ?? item.package_name}</div>
+            <div className="min-w-0 break-all font-semibold">
+              {item.publisher_display_name ?? item.package_name}
+            </div>
             <Badge variant="outline">{item.ecosystem}</Badge>
             {item.latest_update_type ? (
-              <Badge variant="outline">{item.latest_update_type}</Badge>
+              <Badge variant={item.latest_update_type === 'major' ? 'destructive' : 'secondary'}>
+                {updateLabels[item.latest_update_type]}
+              </Badge>
             ) : (
               <Badge variant="secondary">暂无更新类型</Badge>
             )}
@@ -78,18 +83,20 @@ export default function PackageListPanel({
                 <>
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
                     <span>当前约束：</span>
-                    <span className="font-mono">{item.current_version_constraint || '未声明'}</span>
+                    <span className="min-w-0 break-all font-mono">
+                      {item.current_version_constraint || '未声明'}
+                    </span>
                   </div>
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
                     <span>当前基线：</span>
-                    <span className="font-mono">
+                    <span className="min-w-0 break-all font-mono">
                       {prefixPad}
                       {item.normalized_current_version || '未知'}
                     </span>
                   </div>
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
                     <span>最新版本：</span>
-                    <span className="font-mono">
+                    <span className="min-w-0 break-all font-mono">
                       {prefixPad}
                       {renderVersionDiff(item.normalized_current_version, item.latest_version)}
                     </span>
@@ -98,7 +105,7 @@ export default function PackageListPanel({
               )
             })()}
           </div>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <span className="text-xs text-muted-foreground">
               最近检查：{formatDateTime(item.last_checked_at)}
             </span>
@@ -107,7 +114,7 @@ export default function PackageListPanel({
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 flex-col gap-1">
+        <div className="flex shrink-0 flex-wrap items-center gap-1 border-t pt-3 sm:flex-col sm:items-stretch sm:border-t-0 sm:pt-0">
           {item.registry_url ? (
             <Button variant="ghost" size="sm" asChild>
               <a href={item.registry_url} target="_blank" rel="noreferrer">
@@ -119,6 +126,7 @@ export default function PackageListPanel({
           <Button
             variant="ghost"
             size="sm"
+            aria-label={`刷新 ${item.package_name}`}
             onClick={() => void onRefresh(item.id)}
             disabled={activeAction?.id === item.id && activeAction.type === 'refresh'}
           >
@@ -128,6 +136,7 @@ export default function PackageListPanel({
           <Button
             variant="ghost"
             size="sm"
+            aria-label={`取消关注 ${item.package_name}`}
             onClick={() => void onCancelWatch(item.id)}
             disabled={activeAction?.id === item.id && activeAction.type === 'cancel'}
           >
@@ -143,11 +152,13 @@ export default function PackageListPanel({
     return (
       <Card>
         <CardContent className="py-12 text-center text-sm text-muted-foreground">
-          正在加载关注列表...
+          <span role="status">正在加载关注列表…</span>
         </CardContent>
       </Card>
     )
   }
+
+  if (watchedPackages.length === 0) return null
 
   if (filteredWatchedPackages.length === 0) {
     return (
@@ -156,6 +167,16 @@ export default function PackageListPanel({
           <div className="text-center">
             <p className="text-sm text-muted-foreground">当前筛选条件下没有结果</p>
             <p className="mt-1 text-xs text-muted-foreground">切换仓库范围或更新类型</p>
+            <Button
+              className="mt-4"
+              variant="outline"
+              onClick={() => {
+                onVersionFilterChange('all')
+                onRepoKeyChange('all')
+              }}
+            >
+              清空依赖筛选
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -166,10 +187,10 @@ export default function PackageListPanel({
     return (
       <div className="space-y-3">
         {Object.entries(groupedWatchedPackages).map(([repoKey, items]) => (
-          <Card key={repoKey} className="border-dashed">
+          <Card key={repoKey} className="min-w-0 overflow-hidden rounded-2xl">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm">
+                <CardTitle className="min-w-0 break-all text-sm">
                   {repoKey === 'no-repo' ? '无仓库' : repoKey}
                 </CardTitle>
                 <span className="text-xs text-muted-foreground">{items.length} 个依赖</span>
@@ -182,5 +203,5 @@ export default function PackageListPanel({
     )
   }
 
-  return <div className="space-y-2">{filteredWatchedPackages.map(renderPackageCard)}</div>
+  return <div className="space-y-3">{filteredWatchedPackages.map(renderPackageCard)}</div>
 }

@@ -32,14 +32,12 @@ type RepoWatchToolProps = {
   showAddPanel: boolean
   setShowAddPanel: (value: boolean | ((prev: boolean) => boolean)) => void
   toolView: 'packages' | 'repo-settings'
-  setToolView: (view: 'packages' | 'repo-settings') => void
 }
 
 export default function RepoWatchTool({
   showAddPanel,
   setShowAddPanel,
   toolView,
-  setToolView,
 }: RepoWatchToolProps) {
   const [url, setUrl] = useState('')
   const [preview, setPreview] = useState<RepoDependencyPreview | null>(null)
@@ -96,10 +94,6 @@ export default function RepoWatchTool({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!repoOptions.includes(selectedRepoKey)) setSelectedRepoKey('all')
   }, [repoOptions, selectedRepoKey])
-
-  useEffect(() => {
-    if (selectedRepoKey === 'all' || selectedRepoKey === 'no-repo') setToolView('packages')
-  }, [selectedRepoKey, setToolView])
 
   // Derived state
   const selectedCount = useMemo(
@@ -435,7 +429,8 @@ export default function RepoWatchTool({
           {watchedPackages.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
               <select
-                className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+                className="border-input bg-background h-10 min-w-0 max-w-full rounded-lg border px-3 text-sm"
+                aria-label="依赖所属仓库"
                 value={selectedRepoKey}
                 onChange={event => setSelectedRepoKey(event.target.value)}
               >
@@ -446,7 +441,8 @@ export default function RepoWatchTool({
                 ))}
               </select>
               <select
-                className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+                className="border-input bg-background h-10 min-w-0 max-w-full rounded-lg border px-3 text-sm"
+                aria-label="依赖更新类型"
                 value={versionFilter}
                 onChange={event => setVersionFilter(event.target.value as VersionFilter)}
               >
@@ -458,12 +454,15 @@ export default function RepoWatchTool({
             </div>
           ) : null}
 
+          {!loadingList && watchedPackages.length > 0 && <p role="status" className="text-muted-foreground text-xs">显示 {filteredWatchedPackages.length} / {watchedPackages.length} 个依赖</p>}
+
           {/* 添加仓库面板 */}
           {showAddPanel ? (
             <Card>
               <CardContent className="pt-4 space-y-4">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Input
+                    aria-label="GitHub 仓库地址"
                     placeholder="例如 https://github.com/laravel/framework"
                     value={url}
                     onChange={event => setUrl(event.target.value)}
@@ -473,7 +472,7 @@ export default function RepoWatchTool({
                         void handleAnalyze()
                       }
                     }}
-                    className="flex-1"
+                    className="min-w-0 basis-full sm:basis-auto sm:flex-1"
                   />
                   <Button variant="outline" onClick={resetAddPanel}>
                     取消
@@ -488,7 +487,7 @@ export default function RepoWatchTool({
           ) : null}
 
           {/* 空状态 */}
-          {!showAddPanel && watchedPackages.length === 0 && !preview ? (
+          {!loadingList && !showAddPanel && watchedPackages.length === 0 && !preview ? (
             <Card className="border-primary/20 bg-gradient-to-br from-background via-background to-primary/5">
               <CardContent className="py-12">
                 <EmptyState
