@@ -4,7 +4,27 @@
 
 - Web: `web/`
 - API: `api/`
-- Production: `https://repo-watch.dogeow.com`
+- Production: [repo-watch.dogeow.com](https://repo-watch.dogeow.com/)
+
+## 在线体验 / Demo
+
+**[打开 Repo Watch → repo-watch.dogeow.com](https://repo-watch.dogeow.com/)**
+
+线上地址于 **2026-09-30** 核实可打开。这是需要登录的正式应用入口，不是匿名演示沙箱。
+
+1. 打开上方地址，点击「前往 DogeOW 登录」。
+2. 使用 DogeOW 账号完成统一登录，随后自动返回 Repo Watch。
+3. 登录后的可见仓库和操作范围取决于账号权限；项目没有公布演示账号或密码。
+
+## 截图
+
+### 公开登录入口
+
+![DogeOW Repo Watch 未登录首页：统一登录说明与登录按钮](docs/screenshots/login-2026-09-30.jpg)
+
+2026-09-30 从线上站点实际截取的未登录页面，未使用合成 UI。
+这张图展示访问入口，不代表登录后的仓库列表、依赖扫描结果或 OSV 公告界面。
+截图来源与后续补图约定见[截图说明](docs/screenshots/README.md)。
 
 ## 边界
 
@@ -17,7 +37,7 @@
 
 面向 20–30 个仓库的依赖快照扫描、变更检测、通知与 OSV 公告，见 [`docs/multi-repo-scaling.md`](docs/multi-repo-scaling.md)。
 
-**上线清单（Sam）**：同一文档的 [Go-live checklist](docs/multi-repo-scaling.md#go-live-checklist-20-30-repos) — migrate → cron/worker → token → bulk import → health → notifications → advisories。部署后可跑 `php artisan repo-watch:doctor`。
+**上线清单（Sam）**：同一文档的 [Go-live checklist](docs/multi-repo-scaling.md#go-live-checklist-2030-repos) — migrate → cron/worker → token → bulk import → health → notifications → advisories。部署后可跑 `php artisan repo-watch:doctor`。
 
 ## 本地开发
 
