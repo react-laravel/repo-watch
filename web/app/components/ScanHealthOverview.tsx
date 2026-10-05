@@ -59,10 +59,10 @@ export default function ScanHealthOverview({
           </h2>
           <p className="text-muted-foreground mt-1 text-sm">先定位需要关注的仓库，再查看变化。</p>
         </div>
-        {(health.failing > 0 || health.never_scanned > 0) && (
+        {(health.failing > 0 || health.never_scanned > 0 || health.overdue > 0) && (
           <Button variant="outline" size="sm" loading={rescanning} onClick={onRescan}>
             <RefreshCw aria-hidden className="size-4" />
-            重新扫描失败 / 未扫描
+            重新扫描失败 / 未扫描 / 逾期
           </Button>
         )}
       </div>

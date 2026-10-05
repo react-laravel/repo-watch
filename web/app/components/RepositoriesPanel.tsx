@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   Clock3,
@@ -8,7 +8,6 @@ import {
   Download,
   ExternalLink,
   Filter,
-  RefreshCw,
   ShieldAlert,
   Upload,
 } from 'lucide-react'
@@ -82,12 +81,14 @@ const WATCH_PRIORITY_LABEL: Record<WatchPriority, string> = {
 }
 
 const ADVISORY_SEVERITY_LABEL: Record<AdvisorySeverity, string> = {
-  critical: 'critical',
-  high: 'high',
-  moderate: 'moderate',
-  low: 'low',
-  unknown: 'unknown',
+  critical: '严重',
+  high: '高',
+  moderate: '中',
+  low: '低',
+  unknown: '未知',
 }
+
+type RepoAction = 'mute' | 'scan' | 'delete' | 'priority'
 
 const selectClassName =
   'border-input bg-background h-8 rounded-md border px-2 text-xs disabled:cursor-not-allowed disabled:opacity-50'
@@ -112,7 +113,7 @@ export default function RepositoriesPanel() {
   const [changes, setChanges] = useState<DependencyChange[]>([])
   const [loading, setLoading] = useState(true)
   const [changesLoading, setChangesLoading] = useState(false)
-  const [actionId, setActionId] = useState<number | null>(null)
+  const [repoAction, setRepoAction] = useState<{ id: number; type: RepoAction } | null>(null)
   const [rescanningUnhealthy, setRescanningUnhealthy] = useState(false)
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
@@ -133,19 +134,18 @@ export default function RepositoriesPanel() {
     readFirstRunFlag(FIRST_RUN_DIGEST_OPENED_KEY)
   )
 
+  const notificationRequest = useRef(0)
+  const advisoryRequest = useRef(0)
+  const changeRequest = useRef(0)
+  const pollCount = useRef(0)
+  const skipFilterReload = useRef(true)
+
   const loadRepositories = useCallback(async () => {
     const response = await listWatchedRepositories()
     setRepositories(response.repositories)
     setHealth(response.health)
     setRetention(response.retention)
     return response.repositories
-  }, [])
-
-  const loadNotifications = useCallback(async () => {
-    const response = await listRepoWatchNotifications({ limit: 20 })
-    setNotifications(response.notifications)
-    setUnreadCount(response.unread_count)
-    setNotificationPolicy(response.policy)
   }, [])
 
   // Derive a valid filter so deleting the selected repo does not need setState-in-effect.
@@ -156,6 +156,19 @@ export default function RepositoriesPanel() {
 
     return repositories.some(repo => String(repo.id) === repoFilter) ? repoFilter : 'all'
   }, [repositories, repoFilter])
+
+  const loadNotifications = useCallback(async () => {
+    const requestId = ++notificationRequest.current
+    const response = await listRepoWatchNotifications({
+      limit: 20,
+      repositoryId: effectiveRepoFilter === 'all' ? null : Number(effectiveRepoFilter),
+      includeMuted,
+    })
+    if (requestId !== notificationRequest.current) return
+    setNotifications(response.notifications)
+    setUnreadCount(response.unread_count)
+    setNotificationPolicy(response.policy)
+  }, [effectiveRepoFilter, includeMuted])
 
   const loadDigest = useCallback(async () => {
     setDigestLoading(true)
@@ -170,6 +183,7 @@ export default function RepositoriesPanel() {
   }, [])
 
   const loadAdvisories = useCallback(async () => {
+    const requestId = ++advisoryRequest.current
     setAdvisoriesLoading(true)
     try {
       const response = await listPackageAdvisories({
@@ -180,14 +194,16 @@ export default function RepositoriesPanel() {
         status: 'open',
         includeMuted,
       })
+      if (requestId !== advisoryRequest.current) return
       setAdvisories(response.findings)
       setAdvisoryPolicy(response.policy)
     } finally {
-      setAdvisoriesLoading(false)
+      if (requestId === advisoryRequest.current) setAdvisoriesLoading(false)
     }
   }, [effectiveRepoFilter, ecosystemFilter, severityFilter, includeMuted])
 
   const loadChanges = useCallback(async () => {
+    const requestId = ++changeRequest.current
     setChangesLoading(true)
     try {
       const recentChanges = await listDependencyChanges({
@@ -197,9 +213,10 @@ export default function RepositoriesPanel() {
         changeType: changeTypeFilter,
         includeMuted,
       })
+      if (requestId !== changeRequest.current) return
       setChanges(recentChanges)
     } finally {
-      setChangesLoading(false)
+      if (requestId === changeRequest.current) setChangesLoading(false)
     }
   }, [effectiveRepoFilter, ecosystemFilter, changeTypeFilter, includeMuted])
 
@@ -216,26 +233,51 @@ export default function RepositoriesPanel() {
   }, [loadRepositories, loadChanges, loadNotifications, loadAdvisories, loadDigest])
 
   useEffect(() => {
-    // Initial repository/changes sync.
+    // Initial repository/changes sync. Later filter changes reload only the filtered lists.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
-  }, [load])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (skipFilterReload.current) {
+      skipFilterReload.current = false
+      return
+    }
+    void Promise.all([loadChanges(), loadAdvisories(), loadNotifications()]).catch(error => {
+      console.error('加载筛选结果失败', error)
+      toast.error('加载筛选结果失败')
+    })
+  }, [loadChanges, loadAdvisories, loadNotifications])
+
+  useEffect(() => {
+    const active = repositories.some(
+      repo => repo.scan_status === 'pending' || repo.scan_status === 'scanning'
+    )
+    if (!active || pollCount.current > 24) {
+      if (!active) pollCount.current = 0
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      pollCount.current += 1
+      if (pollCount.current > 24) {
+        window.clearInterval(timer)
+        return
+      }
+      void loadRepositories()
+    }, 8000)
+
+    return () => window.clearInterval(timer)
+  }, [repositories, loadRepositories])
 
   useEffect(() => {
     const markVisited = () => {
       writeFleetDigestLastVisit()
     }
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        markVisited()
-      }
-    }
     window.addEventListener('pagehide', markVisited)
-    document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      markVisited()
       window.removeEventListener('pagehide', markVisited)
-      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])
 
@@ -260,8 +302,11 @@ export default function RepositoriesPanel() {
       const response = await bulkImportWatchedRepositories(lines)
       setImportResults(response.results)
       setImportText('')
+      const duplicate = response.summary.duplicate_in_request ?? 0
       toast.success(
-        `导入完成：新增 ${response.summary.created}，已存在 ${response.summary.already_watched}，无效 ${response.summary.invalid}`
+        `导入完成：新增 ${response.summary.created}，已存在 ${response.summary.already_watched}${
+          duplicate > 0 ? `，请求重复 ${duplicate}` : ''
+        }，无效 ${response.summary.invalid}`
       )
       await load()
     } catch {
@@ -273,7 +318,8 @@ export default function RepositoriesPanel() {
 
   const handleScan = useCallback(
     async (id: number) => {
-      setActionId(id)
+      pollCount.current = 0
+      setRepoAction({ id, type: 'scan' })
       try {
         await scanWatchedRepository(id)
         toast.success('依赖快照扫描已排队')
@@ -281,13 +327,14 @@ export default function RepositoriesPanel() {
       } catch {
         toast.error('触发扫描失败')
       } finally {
-        setActionId(null)
+        setRepoAction(null)
       }
     },
     [load]
   )
 
   const handleRescanUnhealthy = useCallback(async () => {
+    pollCount.current = 0
     setRescanningUnhealthy(true)
     try {
       const response = await scanUnhealthyWatchedRepositories()
@@ -306,7 +353,7 @@ export default function RepositoriesPanel() {
 
   const handleToggleMute = useCallback(
     async (repo: WatchedRepository) => {
-      setActionId(repo.id)
+      setRepoAction({ id: repo.id, type: 'mute' })
       try {
         await updateWatchedRepositoryPreferences(repo.id, {
           muted: !repo.muted,
@@ -316,7 +363,7 @@ export default function RepositoriesPanel() {
       } catch {
         toast.error('更新静音状态失败')
       } finally {
-        setActionId(null)
+        setRepoAction(null)
       }
     },
     [load]
@@ -328,7 +375,7 @@ export default function RepositoriesPanel() {
         return
       }
 
-      setActionId(repo.id)
+      setRepoAction({ id: repo.id, type: 'priority' })
       try {
         await updateWatchedRepositoryPreferences(repo.id, {
           watch_priority: watchPriority,
@@ -338,7 +385,7 @@ export default function RepositoriesPanel() {
       } catch {
         toast.error('更新优先级失败')
       } finally {
-        setActionId(null)
+        setRepoAction(null)
       }
     },
     [load]
@@ -346,18 +393,27 @@ export default function RepositoriesPanel() {
 
   const handleDelete = useCallback(
     async (id: number) => {
-      setActionId(id)
+      const repo = repositories.find(item => item.id === id)
+      if (!repo) return
+      if (
+        !window.confirm(
+          `确认取消关注「${repo.full_name}」？该仓库下的依赖关注会一并删除。`
+        )
+      ) {
+        return
+      }
+      setRepoAction({ id: repo.id, type: 'delete' })
       try {
-        await deleteWatchedRepository(id)
+        await deleteWatchedRepository(repo.id)
         toast.success('已取消关注仓库')
         await load()
       } catch {
         toast.error('删除失败')
       } finally {
-        setActionId(null)
+        setRepoAction(null)
       }
     },
-    [load]
+    [load, repositories]
   )
 
   const handleMarkNotificationRead = useCallback(async (id: number) => {
@@ -477,6 +533,8 @@ export default function RepositoriesPanel() {
     changeTypeFilter !== 'all' ||
     includeMuted
   const hasAdvisoryFilters = severityFilter !== 'all' || hasActiveFilters
+  const listFiltersActive = hasAdvisoryFilters
+  const filtersBusy = changesLoading || advisoriesLoading
   const firstRunChecklist = useMemo(
     () =>
       buildFirstRunChecklist({
@@ -551,7 +609,7 @@ export default function RepositoriesPanel() {
 
       <RepositoryListCard
         repositories={repositories}
-        actionId={actionId}
+        actionId={repoAction?.id ?? null}
         onPriorityChange={(repo, priority) => void handlePriorityChange(repo, priority)}
         onToggleMute={repo => void handleToggleMute(repo)}
         onScan={id => void handleScan(id)}
@@ -848,6 +906,122 @@ export default function RepositoriesPanel() {
         </CardContent>
       </Card>
 
+      <Card className="scroll-mt-6 min-w-0 overflow-hidden rounded-2xl">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Filter className="h-4 w-4" />
+            公告与变更筛选
+          </CardTitle>
+          <CardDescription>
+            仓库、生态和静音同时作用于下面的公告、通知和变更。严重度只影响公告，变更类型只影响变更列表。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className={selectClassName}
+              value={effectiveRepoFilter}
+              onChange={event => setRepoFilter(event.target.value)}
+              disabled={filtersBusy}
+              aria-label="仓库筛选"
+            >
+              <option value="all">全部仓库</option>
+              {repositories.map(repo => (
+                <option key={repo.id} value={String(repo.id)}>
+                  {repo.full_name}
+                  {repo.muted ? '（已静音）' : ''}
+                </option>
+              ))}
+            </select>
+            <select
+              className={selectClassName}
+              value={ecosystemFilter}
+              onChange={event => setEcosystemFilter(event.target.value as EcosystemFilter)}
+              disabled={filtersBusy}
+              aria-label="生态筛选"
+            >
+              <option value="all">全部生态</option>
+              <option value="npm">npm</option>
+              <option value="composer">composer</option>
+            </select>
+            <select
+              className={selectClassName}
+              value={changeTypeFilter}
+              onChange={event => setChangeTypeFilter(event.target.value as ChangeTypeFilter)}
+              disabled={filtersBusy}
+              aria-label="变更类型筛选"
+            >
+              <option value="all">全部类型</option>
+              <option value="added">新增</option>
+              <option value="updated">更新</option>
+              <option value="removed">移除</option>
+            </select>
+            <select
+              className={selectClassName}
+              value={severityFilter}
+              onChange={event => setSeverityFilter(event.target.value as SeverityFilter)}
+              disabled={filtersBusy}
+              aria-label="公告严重度筛选"
+            >
+              <option value="all">全部严重度</option>
+              {(Object.keys(ADVISORY_SEVERITY_LABEL) as AdvisorySeverity[]).map(level => (
+                <option key={level} value={level}>
+                  {ADVISORY_SEVERITY_LABEL[level]}
+                </option>
+              ))}
+            </select>
+            <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                className="border-input size-3.5 rounded"
+                checked={includeMuted}
+                disabled={filtersBusy}
+                onChange={event => setIncludeMuted(event.target.checked)}
+              />
+              显示已静音
+            </label>
+            {listFiltersActive ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={filtersBusy}
+                onClick={() => {
+                  setRepoFilter('all')
+                  setEcosystemFilter('all')
+                  setChangeTypeFilter('all')
+                  setSeverityFilter('all')
+                  setIncludeMuted(false)
+                }}
+              >
+                清除筛选
+              </Button>
+            ) : null}
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={filtersBusy || exporting !== null}
+                loading={exporting === 'summary'}
+                onClick={() => void handleExportChanges('summary')}
+              >
+                <Copy className="h-4 w-4" />
+                复制摘要
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={filtersBusy || exporting !== null}
+                loading={exporting === 'csv'}
+                onClick={() => void handleExportChanges('csv')}
+              >
+                <Download className="h-4 w-4" />
+                导出 CSV
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card id="repo-watch-advisories" className="scroll-mt-6 min-w-0 overflow-hidden rounded-2xl">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -862,39 +1036,10 @@ export default function RepositoriesPanel() {
             {advisoryPolicy?.ghsa_enrichment_enabled
               ? '；可选 GHSA 二次富化在有 PAT 且未触达速率地板时补充 GHSA id / 严重度 / 链接'
               : ''}
-            。默认只保留 ≥{advisoryPolicy?.min_severity ?? 'high'}{' '}
-            的命中；可用严重度筛选聚焦高危；critical/high 会进入高信号通知。沿用下方变更区的仓库 /
-            生态 / 静音筛选。
+            。默认只保留 ≥{advisoryPolicy?.min_severity ?? 'high'} 的命中。严重和高危会进入高信号通知。仓库、生态、严重度和静音使用上方的筛选。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Filter className="text-muted-foreground h-3.5 w-3.5" />
-            <select
-              className={selectClassName}
-              value={severityFilter}
-              onChange={event => setSeverityFilter(event.target.value as SeverityFilter)}
-              disabled={advisoriesLoading}
-              aria-label="公告严重度筛选"
-            >
-              <option value="all">全部严重度</option>
-              {(Object.keys(ADVISORY_SEVERITY_LABEL) as AdvisorySeverity[]).map(level => (
-                <option key={level} value={level}>
-                  {ADVISORY_SEVERITY_LABEL[level]}
-                </option>
-              ))}
-            </select>
-            {severityFilter !== 'all' ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={advisoriesLoading}
-                onClick={() => setSeverityFilter('all')}
-              >
-                清除严重度
-              </Button>
-            ) : null}
-          </div>
           {advisoriesLoading ? (
             <div className="text-muted-foreground text-sm">正在加载安全公告…</div>
           ) : advisories.length === 0 ? (
@@ -904,7 +1049,7 @@ export default function RepositoriesPanel() {
               title={hasAdvisoryFilters ? '没有匹配的安全公告' : '暂无开放公告'}
               description={
                 hasAdvisoryFilters
-                  ? '试试放宽严重度，或变更区的仓库 / 生态 / 静音筛选。'
+                  ? '试试放宽上方的仓库、生态、严重度或静音筛选。'
                   : '完成仓库扫描后，OSV 会按小时（或扫描后）检查 lock 版本。'
               }
             />
@@ -922,7 +1067,7 @@ export default function RepositoriesPanel() {
                         : 'secondary'
                     }
                   >
-                    {finding.advisory?.severity ?? 'unknown'}
+                    {ADVISORY_SEVERITY_LABEL[finding.advisory?.severity ?? 'unknown']}
                   </Badge>
                   {finding.advisory?.ghsa_enriched_at ? (
                     <Badge variant="outline">GHSA</Badge>
@@ -973,100 +1118,10 @@ export default function RepositoriesPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">最近依赖变更</CardTitle>
           <CardDescription>
-            跨仓库查看清单差异。默认隐藏已静音仓库；可用仓库、生态与变更类型筛选。导出 CSV /
-            复制摘要便于周报（沿用当前筛选与 digest 游标窗口）。
+            跨仓库查看清单差异。默认隐藏已静音仓库。导出沿用上方筛选和活动摘要的时间窗。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Filter className="text-muted-foreground h-3.5 w-3.5" />
-            <select
-              className={selectClassName}
-              aria-label="变更与公告仓库"
-              value={effectiveRepoFilter}
-              onChange={event => setRepoFilter(event.target.value)}
-              disabled={changesLoading}
-            >
-              <option value="all">全部仓库</option>
-              {repositories.map(repo => (
-                <option key={repo.id} value={String(repo.id)}>
-                  {repo.full_name}
-                  {repo.muted ? '（已静音）' : ''}
-                </option>
-              ))}
-            </select>
-            <select
-              className={selectClassName}
-              aria-label="变更与公告生态"
-              value={ecosystemFilter}
-              onChange={event => setEcosystemFilter(event.target.value as EcosystemFilter)}
-              disabled={changesLoading}
-            >
-              <option value="all">全部生态</option>
-              <option value="npm">npm</option>
-              <option value="composer">composer</option>
-            </select>
-            <select
-              className={selectClassName}
-              aria-label="依赖变更类型"
-              value={changeTypeFilter}
-              onChange={event => setChangeTypeFilter(event.target.value as ChangeTypeFilter)}
-              disabled={changesLoading}
-            >
-              <option value="all">全部类型</option>
-              <option value="added">新增</option>
-              <option value="updated">更新</option>
-              <option value="removed">移除</option>
-            </select>
-            <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-              <input
-                type="checkbox"
-                className="border-input size-3.5 rounded"
-                checked={includeMuted}
-                disabled={changesLoading}
-                onChange={event => setIncludeMuted(event.target.checked)}
-              />
-              显示已静音
-            </label>
-            {hasActiveFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={changesLoading}
-                onClick={() => {
-                  setRepoFilter('all')
-                  setEcosystemFilter('all')
-                  setChangeTypeFilter('all')
-                  setIncludeMuted(false)
-                }}
-              >
-                清除筛选
-              </Button>
-            ) : null}
-            <div className="ml-auto flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={changesLoading || exporting !== null}
-                loading={exporting === 'summary'}
-                onClick={() => void handleExportChanges('summary')}
-              >
-                <Copy className="h-4 w-4" />
-                复制摘要
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={changesLoading || exporting !== null}
-                loading={exporting === 'csv'}
-                onClick={() => void handleExportChanges('csv')}
-              >
-                <Download className="h-4 w-4" />
-                导出 CSV
-              </Button>
-            </div>
-          </div>
-
           {changesLoading ? (
             <div className="text-muted-foreground text-sm">正在加载依赖变更…</div>
           ) : changes.length === 0 ? (

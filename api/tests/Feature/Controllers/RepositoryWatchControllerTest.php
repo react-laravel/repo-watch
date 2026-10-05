@@ -3,7 +3,9 @@
 namespace Tests\Feature\Controllers;
 
 use App\Jobs\RefreshRegistryPackages;
+use App\Jobs\ScanWatchedRepository;
 use App\Models\Repo\RegistryPackage;
+use App\Models\Repo\WatchedPackage;
 use App\Services\Packages\PackageWatchRefreshService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -365,5 +367,87 @@ class RepositoryWatchControllerTest extends TestCase
         $this->getJson('/api/repo-watch/packages')
             ->assertOk()
             ->assertJsonCount(0, 'data');
+    }
+
+    public function test_same_package_in_two_manifests_is_stored_separately(): void
+    {
+        $this->withRepoWatchIdentity();
+        Queue::fake();
+
+        $created = $this->postJson('/api/repo-watch/packages', [
+            'source_url' => 'https://github.com/acme/demo',
+            'source_owner' => 'acme',
+            'source_repo' => 'demo',
+            'packages' => [
+                [
+                    'ecosystem' => 'npm',
+                    'package_name' => 'react',
+                    'manifest_path' => 'apps/web/package.json',
+                    'current_version_constraint' => '^18.2.0',
+                    'normalized_current_version' => '18.2.0',
+                    'current_version_source' => 'lock',
+                    'watch_level' => 'minor',
+                    'dependency_group' => 'dependencies',
+                ],
+                [
+                    'ecosystem' => 'npm',
+                    'package_name' => 'react',
+                    'manifest_path' => 'apps/admin/package.json',
+                    'current_version_constraint' => '^19.0.0',
+                    'normalized_current_version' => '19.0.0',
+                    'current_version_source' => 'lock',
+                    'watch_level' => 'major',
+                    'dependency_group' => 'dependencies',
+                ],
+            ],
+        ])->assertCreated();
+
+        $this->assertCount(2, $created->json('data'));
+        $this->assertDatabaseCount('watched_packages', 2);
+        $this->assertDatabaseCount('registry_packages', 1);
+        $this->assertDatabaseHas('watched_packages', [
+            'package_name' => 'react',
+            'manifest_path' => 'apps/web/package.json',
+            'normalized_current_version' => '18.2.0',
+        ]);
+        $this->assertDatabaseHas('watched_packages', [
+            'package_name' => 'react',
+            'manifest_path' => 'apps/admin/package.json',
+            'normalized_current_version' => '19.0.0',
+        ]);
+    }
+
+    public function test_user_can_update_watch_level_without_queueing_a_scan(): void
+    {
+        $this->withRepoWatchIdentity();
+        Queue::fake();
+
+        $created = $this->postJson('/api/repo-watch/packages', [
+            'source_url' => 'https://github.com/acme/demo',
+            'source_owner' => 'acme',
+            'source_repo' => 'demo',
+            'packages' => [[
+                'ecosystem' => 'npm',
+                'package_name' => 'react',
+                'manifest_path' => 'package.json',
+                'current_version_constraint' => '^18.2.0',
+                'normalized_current_version' => '18.2.0',
+                'current_version_source' => 'lock',
+                'watch_level' => 'minor',
+                'dependency_group' => 'dependencies',
+            ]],
+        ])->assertCreated();
+
+        $id = $created->json('data.0.id');
+        Queue::assertPushed(ScanWatchedRepository::class);
+
+        $this->patchJson("/api/repo-watch/packages/{$id}", [
+            'watch_level' => 'major',
+        ])->assertOk()
+            ->assertJsonPath('data.watch_level', 'major')
+            ->assertJsonPath('message', '关注级别已更新');
+
+        $this->assertSame('major', WatchedPackage::query()->find($id)?->watch_level);
+        Queue::assertPushed(ScanWatchedRepository::class, 1);
     }
 }

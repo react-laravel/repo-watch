@@ -13,6 +13,7 @@ Route::prefix('repo-watch')->group(function (): void {
     Route::get('/packages', [RepositoryWatchController::class, 'index']);
     Route::post('/packages', [RepositoryWatchController::class, 'store']);
     Route::delete('/packages', [RepositoryWatchController::class, 'destroyBatch']);
+    Route::patch('/packages/{watchedPackage}', [RepositoryWatchController::class, 'update']);
     Route::post('/packages/{watchedPackage}/refresh', [RepositoryWatchController::class, 'refresh']);
     Route::delete('/packages/{watchedPackage}', [RepositoryWatchController::class, 'destroy']);
 

@@ -98,6 +98,7 @@ class WatchedRepositoryController extends Controller
         $results = [];
         $created = 0;
         $alreadyWatched = 0;
+        $duplicateInRequest = 0;
         $invalid = 0;
         $scanIndex = 0;
         $seen = [];
@@ -120,7 +121,7 @@ class WatchedRepositoryController extends Controller
             $key = Str::lower($owner).'/'.Str::lower($repo);
 
             if (isset($seen[$key])) {
-                $alreadyWatched++;
+                $duplicateInRequest++;
                 $results[] = [
                     'input' => $reference,
                     'status' => 'duplicate_in_request',
@@ -172,6 +173,7 @@ class WatchedRepositoryController extends Controller
             'summary' => [
                 'created' => $created,
                 'already_watched' => $alreadyWatched,
+                'duplicate_in_request' => $duplicateInRequest,
                 'invalid' => $invalid,
                 'total' => count($results),
                 'scans_queued' => $scanIndex,
@@ -281,7 +283,14 @@ class WatchedRepositoryController extends Controller
             ->where('user_id', $userId)
             ->where(function ($query): void {
                 $query->where('scan_status', WatchedRepository::STATUS_ERROR)
-                    ->orWhereNull('last_scanned_at');
+                    ->orWhereNull('last_scanned_at')
+                    ->orWhere(function ($due): void {
+                        $due->where('scan_status', WatchedRepository::STATUS_IDLE)
+                            ->where(function ($window): void {
+                                $window->whereNull('next_scan_at')
+                                    ->orWhere('next_scan_at', '<=', now());
+                            });
+                    });
             })
             ->orderBy('id')
             ->get();

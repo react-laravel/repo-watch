@@ -75,8 +75,11 @@ class DependencyChangeController extends Controller
         $changes = $this->filteredChanges($request, $validated)
             ->where('detected_at', '>=', $since)
             ->where('detected_at', '<=', $until)
-            ->limit($limit)
+            ->limit($limit + 1)
             ->get();
+
+        $truncated = $changes->count() > $limit;
+        $changes = $changes->take($limit);
 
         $rows = $changes->map(fn (DependencyChange $change) => $this->transformChange($change))->values();
         $content = $format === 'summary'
@@ -94,7 +97,7 @@ class DependencyChangeController extends Controller
             'filename' => $filename,
             'content' => $content,
             'row_count' => $rows->count(),
-            'truncated' => $rows->count() >= $limit,
+            'truncated' => $truncated,
             'since' => $since->toIso8601String(),
             'until' => $until->toIso8601String(),
             'window_source' => $windowSource,

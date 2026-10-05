@@ -171,7 +171,7 @@ describe('scan overview', () => {
     expect(values).toEqual(['9', '3', '2', '3', '4'])
     expect(screen.getByText('1 扫描中 · 2 等待')).toBeVisible()
     expect(screen.getByText(/依赖变更保留 30 天/)).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: '重新扫描失败 / 未扫描' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新扫描失败 / 未扫描 / 逾期' }))
     expect(onRescan).toHaveBeenCalledOnce()
   })
   it('does not offer an inapplicable rescan action for healthy repositories', () => {

@@ -109,7 +109,8 @@ class WatchedRepositoryControllerTest extends TestCase
             ],
         ])->assertCreated()
             ->assertJsonPath('data.summary.created', 3)
-            ->assertJsonPath('data.summary.already_watched', 2)
+            ->assertJsonPath('data.summary.already_watched', 1)
+            ->assertJsonPath('data.summary.duplicate_in_request', 1)
             ->assertJsonPath('data.summary.invalid', 1)
             ->assertJsonPath('data.summary.scans_queued', 3);
 
@@ -266,12 +267,24 @@ class WatchedRepositoryControllerTest extends TestCase
             'next_scan_at' => now()->subMinute(),
         ]);
 
+        $overdue = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'overdue',
+            'url' => 'https://github.com/acme/overdue',
+            'full_name' => 'acme/overdue',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+            'last_scanned_at' => now()->subDays(2),
+            'next_scan_at' => now()->subMinute(),
+        ]);
+
         $this->postJson('/api/repo-watch/repositories/scan-unhealthy')
             ->assertOk()
-            ->assertJsonPath('data.queued', 2)
+            ->assertJsonPath('data.queued', 3)
             ->assertJsonPath('data.health.failing', 0);
 
-        Queue::assertPushed(ScanWatchedRepository::class, 2);
+        Queue::assertPushed(ScanWatchedRepository::class, 3);
         Queue::assertNotPushed(
             ScanWatchedRepository::class,
             fn (ScanWatchedRepository $job) => $job->watchedRepositoryId === $healthy->id
@@ -283,6 +296,10 @@ class WatchedRepositoryControllerTest extends TestCase
         Queue::assertPushed(
             ScanWatchedRepository::class,
             fn (ScanWatchedRepository $job) => $job->watchedRepositoryId === $neverScanned->id
+        );
+        Queue::assertPushed(
+            ScanWatchedRepository::class,
+            fn (ScanWatchedRepository $job) => $job->watchedRepositoryId === $overdue->id
         );
 
         $this->assertSame(WatchedRepository::STATUS_PENDING, $failing->fresh()->scan_status);

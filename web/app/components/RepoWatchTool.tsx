@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FolderGit2, Plus, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -14,19 +14,18 @@ import {
   previewRepoDependencies,
   refreshWatchedPackage,
   saveWatchedPackages,
+  updateWatchedPackageLevel,
   type RepoDependencyPreview,
   type WatchedPackage,
   type WatchLevel,
 } from '@/lib/api/repo-watch'
-import { repoKeyOf, repoLabelOf } from './repoWatchUtils'
+import { messageFrom, repoKeyOf, repoLabelOf, WATCH_LEVEL_LABEL } from './repoWatchUtils'
 import PackageListPanel from './PackageListPanel'
 import DependencyPreview from './DependencyPreview'
 import RepoSettingsPanel from './RepoSettingsPanel'
-import type { SelectedDependency, RepoSettingsPreview } from './types'
+import type { SelectedDependency } from './types'
 
 type VersionFilter = 'all' | WatchLevel
-
-const DEFAULT_SAVE_LEVEL: WatchLevel = 'minor'
 
 type RepoWatchToolProps = {
   showAddPanel: boolean
@@ -48,12 +47,17 @@ export default function RepoWatchTool({
   const [saving, setSaving] = useState(false)
   const [activeAction, setActiveAction] = useState<{
     id: number
-    type: 'refresh' | 'cancel'
+    type: 'refresh' | 'cancel' | 'level'
   } | null>(null)
   const [versionFilter, setVersionFilter] = useState<VersionFilter>('all')
   const [selectedRepoKey, setSelectedRepoKey] = useState<string>('all')
-  const [repoSettingsPreview, setRepoSettingsPreview] = useState<RepoSettingsPreview | null>(null)
+  const [saveLevel, setSaveLevel] = useState<WatchLevel>('minor')
+  const [repoSettingsPreview, setRepoSettingsPreview] = useState<RepoDependencyPreview | null>(null)
+  const [repoSettingsLoading, setRepoSettingsLoading] = useState(false)
+  const [repoSettingsError, setRepoSettingsError] = useState<string | null>(null)
+  const [previewNonce, setPreviewNonce] = useState(0)
   const [repoSettingsActionKey, setRepoSettingsActionKey] = useState<string | null>(null)
+  const refreshTimers = useRef<number[]>([])
 
   // Load watched packages
   const loadWatchedPackages = useCallback(async () => {
@@ -68,10 +72,21 @@ export default function RepoWatchTool({
   }, [])
 
   const scheduleVersionRefreshSync = useCallback(() => {
-    for (const delay of [2000, 5000, 10000, 20000]) {
-      window.setTimeout(() => void loadWatchedPackages(), delay)
+    for (const timer of refreshTimers.current) {
+      window.clearTimeout(timer)
     }
+    refreshTimers.current = [2000, 5000, 10000, 20000].map(delay =>
+      window.setTimeout(() => void loadWatchedPackages(), delay)
+    )
   }, [loadWatchedPackages])
+
+  useEffect(() => {
+    return () => {
+      for (const timer of refreshTimers.current) {
+        window.clearTimeout(timer)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     // Initial data synchronization intentionally updates local request state.
@@ -118,15 +133,6 @@ export default function RepoWatchTool({
     })
   }, [watchedPackages, versionFilter, selectedRepoKey])
 
-  const groupedWatchedPackages = useMemo(() => {
-    return filteredWatchedPackages.reduce<Record<string, WatchedPackage[]>>((acc, item) => {
-      const key = repoKeyOf(item)
-      if (!acc[key]) acc[key] = []
-      acc[key].push(item)
-      return acc
-    }, {})
-  }, [filteredWatchedPackages])
-
   // Repo settings derived
   const selectedRepoPackages = useMemo(() => {
     return watchedPackages.filter(item => repoKeyOf(item) === selectedRepoKey)
@@ -136,6 +142,42 @@ export default function RepoWatchTool({
     if (!selectedRepoKey || selectedRepoKey === 'all' || selectedRepoKey === 'no-repo') return null
     return selectedRepoPackages[0] ?? null
   }, [selectedRepoKey, selectedRepoPackages])
+
+  const selectedRepoUrl = selectedRepoSample?.source_url ?? null
+
+  useEffect(() => {
+    // Request flags follow the selected repository; the panel only renders this state.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (toolView !== 'repo-settings') return
+    if (!selectedRepoUrl || selectedRepoKey === 'all' || selectedRepoKey === 'no-repo') {
+      setRepoSettingsPreview(null)
+      setRepoSettingsError(null)
+      setRepoSettingsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setRepoSettingsLoading(true)
+    setRepoSettingsError(null)
+
+    void previewRepoDependencies(selectedRepoUrl)
+      .then(result => {
+        if (!cancelled) setRepoSettingsPreview(result)
+      })
+      .catch(error => {
+        if (cancelled) return
+        setRepoSettingsPreview(null)
+        setRepoSettingsError(messageFrom(error, '加载仓库依赖失败'))
+      })
+      .finally(() => {
+        if (!cancelled) setRepoSettingsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [previewNonce, selectedRepoKey, selectedRepoUrl, toolView])
 
   const selectedRepoWatchedMap = useMemo(() => {
     const map = new Map<string, SelectedDependency>()
@@ -168,6 +210,8 @@ export default function RepoWatchTool({
       )
       setShowAddPanel(true)
       toast.success('依赖解析完成')
+    } catch (error) {
+      toast.error(messageFrom(error, '解析仓库依赖失败'))
     } finally {
       setAnalyzing(false)
     }
@@ -188,6 +232,13 @@ export default function RepoWatchTool({
   const toggleAll = useCallback((selected: boolean) => {
     setDependencies(prev => prev.map(item => ({ ...item, selected })))
   }, [])
+
+  const resetAddPanel = useCallback(() => {
+    setPreview(null)
+    setDependencies([])
+    setUrl('')
+    setShowAddPanel(false)
+  }, [setShowAddPanel])
 
   const handleSave = useCallback(async () => {
     if (!preview) {
@@ -215,7 +266,7 @@ export default function RepoWatchTool({
             | 'manifest'
             | null
             | undefined,
-          watch_level: DEFAULT_SAVE_LEVEL,
+          watch_level: saveLevel,
           dependency_group: item.dependency_group,
         }))
       )
@@ -232,12 +283,12 @@ export default function RepoWatchTool({
       resetAddPanel()
       scheduleVersionRefreshSync()
       toast.success(`已保存 ${saved.length} 个依赖，正在后台获取最新版本`)
+    } catch (error) {
+      toast.error(messageFrom(error, '保存依赖失败'))
     } finally {
       setSaving(false)
     }
-    // resetAddPanel is stable and declared below to keep related handlers together.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dependencies, preview, scheduleVersionRefreshSync, url])
+  }, [dependencies, preview, resetAddPanel, saveLevel, scheduleVersionRefreshSync, url])
 
   const handleRefresh = useCallback(async (id: number) => {
     setActiveAction({ id, type: 'refresh' })
@@ -245,17 +296,36 @@ export default function RepoWatchTool({
       const item = await refreshWatchedPackage(id)
       setWatchedPackages(prev => prev.map(pkg => (pkg.id === id ? item : pkg)))
       toast.success('依赖更新已刷新')
+    } catch (error) {
+      toast.error(messageFrom(error, '刷新依赖失败'))
     } finally {
       setActiveAction(null)
     }
   }, [])
 
   const handleCancelWatch = useCallback(async (id: number) => {
+    if (!window.confirm('确认取消关注这个依赖？')) return
     setActiveAction({ id, type: 'cancel' })
     try {
       await deleteWatchedPackage(id)
       setWatchedPackages(prev => prev.filter(pkg => pkg.id !== id))
       toast.success('已取消关注')
+    } catch (error) {
+      toast.error(messageFrom(error, '取消关注失败'))
+    } finally {
+      setActiveAction(null)
+    }
+  }, [])
+
+  const handleWatchLevelChange = useCallback(async (item: WatchedPackage, level: WatchLevel) => {
+    if (item.watch_level === level) return
+    setActiveAction({ id: item.id, type: 'level' })
+    try {
+      const updated = await updateWatchedPackageLevel(item.id, level)
+      setWatchedPackages(prev => prev.map(pkg => (pkg.id === item.id ? updated : pkg)))
+      toast.success(`关注级别已设为「${WATCH_LEVEL_LABEL[level]}」`)
+    } catch (error) {
+      toast.error(messageFrom(error, '更新关注级别失败'))
     } finally {
       setActiveAction(null)
     }
@@ -315,7 +385,7 @@ export default function RepoWatchTool({
                 | 'manifest'
                 | null
                 | undefined,
-              watch_level: DEFAULT_SAVE_LEVEL,
+              watch_level: saveLevel,
             }))
           )
           setWatchedPackages(prev => {
@@ -329,6 +399,8 @@ export default function RepoWatchTool({
           })
           scheduleVersionRefreshSync()
           toast.success(`已保存 ${saved.length} 个依赖，正在后台获取最新版本`)
+        } catch (error) {
+          toast.error(messageFrom(error, '保存依赖失败'))
         } finally {
           setRepoSettingsActionKey(null)
         }
@@ -347,12 +419,15 @@ export default function RepoWatchTool({
           await deleteWatchedPackages(toDelete.map(p => p.id))
           setWatchedPackages(prev => prev.filter(pkg => !toDelete.some(d => d.id === pkg.id)))
           toast.success(`已取消关注 ${toDelete.length} 个依赖`)
+        } catch (error) {
+          toast.error(messageFrom(error, '取消关注失败'))
         } finally {
           setRepoSettingsActionKey(null)
         }
       }
     },
     [
+      saveLevel,
       selectedRepoSample,
       selectedRepoWatchedMap,
       selectedRepoPackages,
@@ -390,7 +465,7 @@ export default function RepoWatchTool({
                 current_version_source: (
                   dep as SelectedDependency & { current_version_source?: string | null }
                 ).current_version_source as 'lock' | 'manifest' | null | undefined,
-                watch_level: DEFAULT_SAVE_LEVEL,
+                watch_level: saveLevel,
               },
             ]
           )
@@ -406,19 +481,14 @@ export default function RepoWatchTool({
           scheduleVersionRefreshSync()
           toast.success('已加入关注，正在后台获取最新版本')
         }
+      } catch (error) {
+        toast.error(messageFrom(error, watched ? '取消关注失败' : '加入关注失败'))
       } finally {
         setRepoSettingsActionKey(null)
       }
     },
-    [scheduleVersionRefreshSync, selectedRepoSample]
+    [saveLevel, scheduleVersionRefreshSync, selectedRepoSample]
   )
-
-  const resetAddPanel = useCallback(() => {
-    setPreview(null)
-    setDependencies([])
-    setUrl('')
-    setShowAddPanel(false)
-  }, [setShowAddPanel])
 
   return (
     <div className="space-y-4">
@@ -506,6 +576,8 @@ export default function RepoWatchTool({
               groupedDependencies={groupedDependencies}
               selectedCount={selectedCount}
               saving={saving}
+              watchLevel={saveLevel}
+              onWatchLevelChange={setSaveLevel}
               onToggleDependency={handleToggleDependency}
               onToggleAll={toggleAll}
               onSave={handleSave}
@@ -517,16 +589,15 @@ export default function RepoWatchTool({
           <PackageListPanel
             watchedPackages={watchedPackages}
             filteredWatchedPackages={filteredWatchedPackages}
-            groupedWatchedPackages={groupedWatchedPackages}
             versionFilter={versionFilter}
             selectedRepoKey={selectedRepoKey}
-            repoOptions={repoOptions}
             activeAction={activeAction}
             loadingList={loadingList}
             onVersionFilterChange={setVersionFilter}
             onRepoKeyChange={setSelectedRepoKey}
             onRefresh={handleRefresh}
             onCancelWatch={handleCancelWatch}
+            onWatchLevelChange={handleWatchLevelChange}
           />
         </>
       ) : (
@@ -538,7 +609,10 @@ export default function RepoWatchTool({
           selectedRepoPackages={selectedRepoPackages}
           selectedRepoWatchedMap={selectedRepoWatchedMap}
           repoSettingsPreview={repoSettingsPreview}
+          repoSettingsLoading={repoSettingsLoading}
+          repoSettingsError={repoSettingsError}
           repoSettingsActionKey={repoSettingsActionKey}
+          onRetryPreview={() => setPreviewNonce(nonce => nonce + 1)}
           onRepoKeyChange={setSelectedRepoKey}
           onToggleAllRepoSettings={handleToggleAllRepoSettings}
           onToggleRepoSettingPackage={handleToggleRepoSettingPackage}

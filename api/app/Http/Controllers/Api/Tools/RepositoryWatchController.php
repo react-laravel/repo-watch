@@ -96,7 +96,7 @@ class RepositoryWatchController extends Controller
         $userId = (int) $request->user()->id;
         $timestamp = now();
         $selectedPackages = collect($validated['packages'])
-            ->keyBy(fn (array $package) => "{$package['ecosystem']}:{$package['package_name']}")
+            ->keyBy(fn (array $package) => $this->packageIdentity($package))
             ->values();
 
         $watchedRepository = $this->repositoryScanService->ensureForUser(
@@ -160,7 +160,7 @@ class RepositoryWatchController extends Controller
                     'source_url' => $validated['source_url'],
                     'ecosystem' => $package['ecosystem'],
                     'package_name' => $package['package_name'],
-                    'manifest_path' => $package['manifest_path'] ?? null,
+                    'manifest_path' => $this->manifestPath($package),
                     'current_version_constraint' => $package['current_version_constraint'] ?? null,
                     'normalized_current_version' => $package['normalized_current_version'] ?? null,
                     'watch_level' => $package['watch_level'],
@@ -175,9 +175,9 @@ class RepositoryWatchController extends Controller
 
             WatchedPackage::query()->upsert(
                 $packageRows->all(),
-                ['user_id', 'source_provider', 'source_owner', 'source_repo', 'ecosystem', 'package_name'],
+                ['user_id', 'source_provider', 'source_owner', 'source_repo', 'ecosystem', 'package_name', 'manifest_path'],
                 [
-                    'registry_package_id', 'watched_repository_id', 'source_url', 'manifest_path',
+                    'registry_package_id', 'watched_repository_id', 'source_url',
                     'current_version_constraint', 'normalized_current_version',
                     'watch_level', 'metadata', 'updated_at',
                 ]
@@ -190,20 +190,15 @@ class RepositoryWatchController extends Controller
                 ->where('source_owner', $normalizedOwner)
                 ->where('source_repo', $normalizedRepo)
                 ->get()
-                ->keyBy(fn (WatchedPackage $package) => "{$package->ecosystem}:{$package->package_name}");
-
-            $watchedRepository->update([
-                'package_count' => max(
-                    (int) $watchedRepository->package_count,
-                    $savedPackages->count()
-                ),
-            ]);
+                ->keyBy(fn (WatchedPackage $package) => $this->packageIdentity([
+                    'ecosystem' => $package->ecosystem,
+                    'manifest_path' => $package->manifest_path,
+                    'package_name' => $package->package_name,
+                ]));
 
             return [
                 $selectedPackages
-                    ->map(fn (array $package) => $savedPackages->get(
-                        "{$package['ecosystem']}:{$package['package_name']}"
-                    ))
+                    ->map(fn (array $package) => $savedPackages->get($this->packageIdentity($package)))
                     ->filter()
                     ->values(),
                 $registryPackages->pluck('id')->values()->all(),
@@ -235,6 +230,24 @@ class RepositoryWatchController extends Controller
         return $this->success(['deleted' => $deleted], '已取消关注');
     }
 
+    public function update(Request $request, WatchedPackage $watchedPackage): JsonResponse
+    {
+        if ((int) $watchedPackage->user_id !== (int) $request->user()->id) {
+            return $this->error('无权修改该依赖', null, 403);
+        }
+
+        $validated = $request->validate([
+            'watch_level' => ['required', 'in:major,minor,patch'],
+        ]);
+
+        $watchedPackage->update([
+            'watch_level' => $validated['watch_level'],
+        ]);
+        $watchedPackage->load('registryPackage');
+
+        return $this->success($this->transformPackage($watchedPackage), '关注级别已更新');
+    }
+
     public function refresh(Request $request, WatchedPackage $watchedPackage): JsonResponse
     {
         if ((int) $watchedPackage->user_id !== (int) $request->user()->id) {
@@ -255,6 +268,24 @@ class RepositoryWatchController extends Controller
         $watchedPackage->delete();
 
         return $this->success([], '已取消关注');
+    }
+
+    /**
+     * @param  array<string, mixed>  $package
+     */
+    private function manifestPath(array $package): string
+    {
+        $path = $package['manifest_path'] ?? null;
+
+        return is_string($path) ? $path : '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $package
+     */
+    private function packageIdentity(array $package): string
+    {
+        return $package['ecosystem'].':'.$this->manifestPath($package).':'.$package['package_name'];
     }
 
     private function transformPackage(WatchedPackage $package): array

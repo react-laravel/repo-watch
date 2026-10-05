@@ -30,6 +30,7 @@ const props = {
   onRepoKeyChange: vi.fn(),
   onRefresh: vi.fn().mockResolvedValue(undefined),
   onCancelWatch: vi.fn().mockResolvedValue(undefined),
+  onWatchLevelChange: vi.fn().mockResolvedValue(undefined),
 }
 describe('dependency cards', () => {
   it('uses readable update labels and preserves version values and actions', () => {

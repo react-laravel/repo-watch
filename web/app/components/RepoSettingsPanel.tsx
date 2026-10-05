@@ -4,10 +4,9 @@ import { ExternalLink, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import type { WatchedPackage } from '@/lib/api/repo-watch'
-import type { RepoDependencyPreviewItem } from '@/lib/api/repo-watch'
+import type { RepoDependencyPreview, RepoDependencyPreviewItem, WatchedPackage } from '@/lib/api/repo-watch'
 import { repoLabelOf } from './repoWatchUtils'
-import type { RepoSettingsPreview, SelectedDependency } from './types'
+import type { SelectedDependency } from './types'
 
 interface RepoSettingsPanelProps {
   repoOptions: string[]
@@ -21,8 +20,11 @@ interface RepoSettingsPanelProps {
   } | null
   selectedRepoPackages: WatchedPackage[]
   selectedRepoWatchedMap: Map<string, SelectedDependency>
-  repoSettingsPreview: RepoSettingsPreview | null
+  repoSettingsPreview: RepoDependencyPreview | null
+  repoSettingsLoading: boolean
+  repoSettingsError: string | null
   repoSettingsActionKey: string | null
+  onRetryPreview: () => void
   onRepoKeyChange: (key: string) => void
   onToggleAllRepoSettings: (
     deps: Array<
@@ -44,7 +46,10 @@ export default function RepoSettingsPanel({
   selectedRepoPackages,
   selectedRepoWatchedMap,
   repoSettingsPreview,
+  repoSettingsLoading,
+  repoSettingsError,
   repoSettingsActionKey,
+  onRetryPreview,
   onRepoKeyChange,
   onToggleAllRepoSettings,
   onToggleRepoSettingPackage,
@@ -52,16 +57,15 @@ export default function RepoSettingsPanel({
 }: RepoSettingsPanelProps) {
   const repoOptionsFiltered = repoOptions.filter(item => item !== 'all' && item !== 'no-repo')
 
-  const allWatched = selectedRepoPackages.every(pkg =>
-    repoSettingsPreview?.manifests.some(manifest =>
-      manifest.dependencies.some(
-        dep =>
-          pkg.ecosystem === manifest.ecosystem &&
-          pkg.manifest_path === manifest.path &&
-          pkg.package_name === dep.package_name
+  const previewDependencyKeys =
+    repoSettingsPreview?.manifests.flatMap(manifest =>
+      manifest.dependencies.map(
+        dep => `${manifest.ecosystem}:${manifest.path}:${dep.package_name}`
       )
-    )
-  )
+    ) ?? []
+  const allWatched =
+    previewDependencyKeys.length > 0 &&
+    previewDependencyKeys.every(key => selectedRepoWatchedMap.has(key))
 
   return (
     <>
@@ -84,7 +88,13 @@ export default function RepoSettingsPanel({
               </option>
             ))}
           </select>
-          {repoOptionsFiltered.length === 0 && <p className="text-muted-foreground mt-3 text-sm">还没有可设置的仓库。添加仓库并保存关注的依赖后，可在这里调整。</p>}
+          {repoOptionsFiltered.length === 0 ? (
+            <p className="text-muted-foreground mt-3 text-sm">
+              还没有可设置的仓库。添加仓库并保存关注的依赖后，可在这里调整。
+            </p>
+          ) : (
+            <p className="text-muted-foreground mt-2 text-xs">选择仓库后读取该仓库的依赖清单。</p>
+          )}
         </CardContent>
       </Card>
 
@@ -102,10 +112,10 @@ export default function RepoSettingsPanel({
                     href={selectedRepoSample.source_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-muted-foreground flex items-center gap-1 text-xs transition-colors hover:text-foreground"
+                    className="text-muted-foreground flex min-w-0 items-center gap-1 text-xs transition-colors hover:text-foreground"
                   >
-                    <ExternalLink className="h-3 w-3" />
-                    {selectedRepoSample.source_url}
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{selectedRepoSample.source_url}</span>
                   </a>
                 ) : null}
               </div>
@@ -113,7 +123,11 @@ export default function RepoSettingsPanel({
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={repoSettingsActionKey === 'toggle-all'}
+                  disabled={
+                    repoSettingsActionKey === 'toggle-all' ||
+                    repoSettingsLoading ||
+                    !repoSettingsPreview
+                  }
                   onClick={() =>
                     void onToggleAllRepoSettings(
                       repoSettingsPreview?.manifests.flatMap(manifest =>
@@ -150,7 +164,20 @@ export default function RepoSettingsPanel({
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {repoSettingsPreview ? (
+            {repoSettingsLoading ? (
+              <div className="text-muted-foreground py-8 text-center text-sm">正在读取仓库依赖…</div>
+            ) : repoSettingsError ? (
+              <div className="space-y-3 py-8 text-center">
+                <p className="text-destructive text-sm">{repoSettingsError}</p>
+                <Button variant="outline" size="sm" onClick={onRetryPreview}>
+                  重试
+                </Button>
+              </div>
+            ) : repoSettingsPreview && repoSettingsPreview.manifests.length === 0 ? (
+              <div className="text-muted-foreground py-8 text-center text-sm">
+                这个仓库没有 npm 或 Composer 依赖
+              </div>
+            ) : repoSettingsPreview ? (
               repoSettingsPreview.manifests.map(manifest => {
                 const watchedCount = manifest.dependencies.filter(dep =>
                   selectedRepoWatchedMap.has(
@@ -211,7 +238,9 @@ export default function RepoSettingsPanel({
                 )
               })
             ) : (
-              <div className="py-8 text-center text-sm text-muted-foreground">暂无仓库依赖数据</div>
+              <div className="text-muted-foreground py-8 text-center text-sm">
+                {selectedRepoKey ? '选择仓库后会读取依赖清单' : '先选择一个仓库'}
+              </div>
             )}
           </CardContent>
         </Card>

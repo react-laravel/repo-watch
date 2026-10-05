@@ -1,10 +1,11 @@
 'use client'
 
-import { CheckSquare, ExternalLink, Square } from 'lucide-react'
+import { CheckCheck, ExternalLink, Save, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import type { RepoDependencyPreview } from '@/lib/api/repo-watch'
+import type { RepoDependencyPreview, WatchLevel } from '@/lib/api/repo-watch'
+import { WATCH_LEVEL_LABEL } from './repoWatchUtils'
 import type { SelectedDependency } from './types'
 
 interface DependencyPreviewProps {
@@ -12,6 +13,8 @@ interface DependencyPreviewProps {
   groupedDependencies: Record<string, SelectedDependency[]>
   selectedCount: number
   saving: boolean
+  watchLevel: WatchLevel
+  onWatchLevelChange: (level: WatchLevel) => void
   onToggleDependency: (dep: SelectedDependency, selected: boolean) => void
   onToggleAll: (selected: boolean) => void
   onSave: () => Promise<void>
@@ -23,6 +26,8 @@ export default function DependencyPreview({
   groupedDependencies,
   selectedCount,
   saving,
+  watchLevel,
+  onWatchLevelChange,
   onToggleDependency,
   onToggleAll,
   onSave,
@@ -49,7 +54,7 @@ export default function DependencyPreview({
           </div>
           <div className="flex flex-wrap gap-1">
             <Button size="sm" onClick={() => void onSave()} loading={saving}>
-              <CheckSquare className="h-4 w-4" />
+              <Save className="h-4 w-4" />
               保存 ({selectedCount})
             </Button>
             <Button
@@ -60,7 +65,7 @@ export default function DependencyPreview({
               aria-label="全选"
               title="全选"
             >
-              <CheckSquare className="h-4 w-4" />
+              <CheckCheck className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
@@ -74,8 +79,23 @@ export default function DependencyPreview({
             </Button>
           </div>
         </div>
-        <CardDescription className="truncate">
-          {preview.source.description || '暂无仓库描述'}
+        <CardDescription className="flex flex-wrap items-center gap-2">
+          <span className="min-w-0 truncate">{preview.source.description || '暂无仓库描述'}</span>
+          <label className="text-foreground flex items-center gap-1.5 text-xs">
+            关注级别
+            <select
+              className="border-input bg-background h-7 rounded-md border px-2"
+              value={watchLevel}
+              onChange={event => onWatchLevelChange(event.target.value as WatchLevel)}
+              aria-label="保存时的关注级别"
+            >
+              {(Object.keys(WATCH_LEVEL_LABEL) as WatchLevel[]).map(level => (
+                <option key={level} value={level}>
+                  {WATCH_LEVEL_LABEL[level]}
+                </option>
+              ))}
+            </select>
+          </label>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -97,7 +117,7 @@ export default function DependencyPreview({
               <div className="grid gap-1.5">
                 {items.map(item => (
                   <label
-                    key={`${item.ecosystem}-${item.package_name}`}
+                    key={`${item.ecosystem}-${item.manifest_path}-${item.package_name}`}
                     className="flex items-center gap-2 rounded-md border px-3 py-2 hover:bg-muted/50"
                   >
                     <input
@@ -124,7 +144,7 @@ export default function DependencyPreview({
             取消
           </Button>
           <Button size="sm" onClick={() => void onSave()} loading={saving}>
-            <CheckSquare className="h-4 w-4" />
+            <Save className="h-4 w-4" />
             保存 ({selectedCount})
           </Button>
         </div>

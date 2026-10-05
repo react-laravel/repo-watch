@@ -4,6 +4,7 @@ import {
   listWatchedPackages,
   saveWatchedPackages,
   refreshWatchedPackage,
+  updateWatchedPackageLevel,
   deleteWatchedPackage,
   deleteWatchedPackages,
   listWatchedRepositories,
@@ -38,6 +39,10 @@ describe('repo-watch API functions', () => {
 
   it('refreshWatchedPackage should be a function', () => {
     expect(typeof refreshWatchedPackage).toBe('function')
+  })
+
+  it('updateWatchedPackageLevel should be a function', () => {
+    expect(typeof updateWatchedPackageLevel).toBe('function')
   })
 
   it('deleteWatchedPackage should be a function', () => {

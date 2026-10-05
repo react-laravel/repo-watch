@@ -95,4 +95,70 @@ class RepoWatchNotificationControllerTest extends TestCase
         );
         $this->assertNull($other->fresh()->read_at);
     }
+
+    public function test_notifications_can_be_filtered_to_one_repository(): void
+    {
+        $this->withRepoWatchIdentity();
+
+        $alpha = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'alpha',
+            'url' => 'https://github.com/acme/alpha',
+            'full_name' => 'acme/alpha',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+        ]);
+        $beta = WatchedRepository::query()->create([
+            'user_id' => 42,
+            'provider' => 'github',
+            'owner' => 'acme',
+            'repo' => 'beta',
+            'url' => 'https://github.com/acme/beta',
+            'full_name' => 'acme/beta',
+            'scan_status' => WatchedRepository::STATUS_IDLE,
+            'muted_at' => now(),
+        ]);
+
+        RepoWatchNotification::query()->create([
+            'user_id' => 42,
+            'watched_repository_id' => $alpha->id,
+            'type' => RepoWatchNotification::TYPE_DEPENDENCY_HIGH_SIGNAL,
+            'severity' => RepoWatchNotification::SEVERITY_HIGH,
+            'title' => 'alpha',
+            'body' => 'major',
+            'payload' => [],
+        ]);
+        RepoWatchNotification::query()->create([
+            'user_id' => 42,
+            'watched_repository_id' => $beta->id,
+            'type' => RepoWatchNotification::TYPE_DEPENDENCY_HIGH_SIGNAL,
+            'severity' => RepoWatchNotification::SEVERITY_HIGH,
+            'title' => 'beta',
+            'body' => 'major',
+            'payload' => [],
+        ]);
+
+        $this->getJson('/api/repo-watch/notifications')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.notifications')
+            ->assertJsonPath('data.notifications.0.title', 'alpha')
+            ->assertJsonPath('data.unread_count', 1);
+
+        $this->getJson('/api/repo-watch/notifications?repository_id='.$beta->id)
+            ->assertOk()
+            ->assertJsonCount(1, 'data.notifications')
+            ->assertJsonPath('data.notifications.0.title', 'beta')
+            ->assertJsonPath('data.notifications.0.repository.muted', true);
+
+        $this->getJson('/api/repo-watch/notifications?include_muted=1')
+            ->assertOk()
+            ->assertJsonCount(2, 'data.notifications')
+            ->assertJsonPath('data.unread_count', 2);
+
+        $this->getJson('/api/repo-watch/notifications?repository_id=999999')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.notifications')
+            ->assertJsonPath('data.unread_count', 0);
+    }
 }

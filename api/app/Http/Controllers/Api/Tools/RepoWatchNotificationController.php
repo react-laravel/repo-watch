@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Tools;
 use App\Http\Controllers\Controller;
 use App\Models\Repo\RepoWatchNotification;
 use App\Models\Repo\WatchedRepository;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,8 +16,7 @@ class RepoWatchNotificationController extends Controller
         $limit = min(100, max(1, (int) $request->query('limit', 30)));
         $unreadOnly = filter_var($request->query('unread_only', false), FILTER_VALIDATE_BOOL);
 
-        $query = RepoWatchNotification::query()
-            ->where('user_id', $request->user()->id)
+        $query = $this->scopedNotifications($request)
             ->with('watchedRepository')
             ->orderByDesc('created_at')
             ->orderByDesc('id');
@@ -27,8 +27,7 @@ class RepoWatchNotificationController extends Controller
 
         $notifications = $query->limit($limit)->get();
 
-        $unreadCount = RepoWatchNotification::query()
-            ->where('user_id', $request->user()->id)
+        $unreadCount = $this->scopedNotifications($request)
             ->whereNull('read_at')
             ->count();
 
@@ -75,6 +74,42 @@ class RepoWatchNotificationController extends Controller
     }
 
     /**
+     * @return Builder<RepoWatchNotification>
+     */
+    private function scopedNotifications(Request $request): Builder
+    {
+        $repositoryId = $request->query('repository_id');
+        $repositoryId = is_numeric($repositoryId) ? (int) $repositoryId : null;
+        $includeMuted = filter_var($request->query('include_muted', false), FILTER_VALIDATE_BOOLEAN);
+
+        $query = RepoWatchNotification::query()->where('user_id', $request->user()->id);
+
+        if ($repositoryId !== null) {
+            $ownsRepository = WatchedRepository::query()
+                ->where('user_id', $request->user()->id)
+                ->whereKey($repositoryId)
+                ->exists();
+
+            if (! $ownsRepository) {
+                return $query->whereRaw('1 = 0');
+            }
+
+            return $query->where('watched_repository_id', $repositoryId);
+        }
+
+        if (! $includeMuted) {
+            $query->where(function (Builder $inner): void {
+                $inner->whereNull('watched_repository_id')
+                    ->orWhereHas('watchedRepository', function (Builder $repository): void {
+                        $repository->whereNull('muted_at');
+                    });
+            });
+        }
+
+        return $query;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function transform(RepoWatchNotification $notification): array
@@ -95,6 +130,7 @@ class RepoWatchNotificationController extends Controller
                 'id' => $repository->id,
                 'full_name' => $repository->displayName(),
                 'url' => $repository->url,
+                'muted' => $repository->isMuted(),
             ] : ($notification->payload['repository'] ?? null),
         ];
     }

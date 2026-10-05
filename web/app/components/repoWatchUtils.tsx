@@ -1,4 +1,23 @@
-import type { WatchedPackage } from '@/lib/api/repo-watch'
+import { ApiError } from '@/lib/api/core'
+import type { WatchLevel, WatchedPackage } from '@/lib/api/repo-watch'
+
+export const WATCH_LEVEL_LABEL: Record<WatchLevel, string> = {
+  major: '大版本',
+  minor: '功能版本',
+  patch: '补丁',
+}
+
+export const messageFrom = (error: unknown, fallback: string) => {
+  if (error instanceof ApiError && error.message.trim() !== '') {
+    return error.message
+  }
+
+  if (error instanceof Error && error.message.trim() !== '') {
+    return error.message
+  }
+
+  return fallback
+}
 
 export const formatDateTime = (value?: string | null) => {
   if (!value) return '暂无'

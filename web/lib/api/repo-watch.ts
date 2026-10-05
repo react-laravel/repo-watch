@@ -133,6 +133,9 @@ export const saveWatchedPackages = (
 export const refreshWatchedPackage = (id: number) =>
   post<WatchedPackage>(`/repo-watch/packages/${id}/refresh`, {})
 
+export const updateWatchedPackageLevel = (id: number, watchLevel: WatchLevel) =>
+  patch<WatchedPackage>(`/repo-watch/packages/${id}`, { watch_level: watchLevel })
+
 export const deleteWatchedPackage = (id: number) => del<void>(`/repo-watch/packages/${id}`)
 
 export const deleteWatchedPackages = (ids: number[]) =>
@@ -161,6 +164,7 @@ export interface BulkImportRepositoriesResponse {
   summary: {
     created: number
     already_watched: number
+    duplicate_in_request: number
     invalid: number
     total: number
     scans_queued: number
@@ -337,6 +341,7 @@ export interface RepoWatchNotification {
     id: number
     full_name: string
     url: string
+    muted?: boolean
   } | null
 }
 
@@ -355,11 +360,22 @@ export interface RepoWatchNotificationsResponse {
   policy: RepoWatchNotificationPolicy
 }
 
-export const listRepoWatchNotifications = (options?: { limit?: number; unreadOnly?: boolean }) => {
+export const listRepoWatchNotifications = (options?: {
+  limit?: number
+  unreadOnly?: boolean
+  repositoryId?: number | null
+  includeMuted?: boolean
+}) => {
   const params = new URLSearchParams()
   params.set('limit', String(options?.limit ?? 30))
   if (options?.unreadOnly) {
     params.set('unread_only', '1')
+  }
+  if (options?.repositoryId) {
+    params.set('repository_id', String(options.repositoryId))
+  }
+  if (options?.includeMuted) {
+    params.set('include_muted', '1')
   }
 
   return get<RepoWatchNotificationsResponse>(`/repo-watch/notifications?${params.toString()}`)
